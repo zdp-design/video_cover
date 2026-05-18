@@ -326,3 +326,64 @@ test('can adjust element layers in editor', async ({ page }) => {
   await expect(elementB).toHaveCSS('z-index', '0');
   await expect(elementA).toHaveCSS('z-index', '1');
 });
+
+test('can use undo, redo, and new functionalities in the editor', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  // 1. Locate the Undo, Redo, and New buttons in the header
+  const undoBtn = page.locator('[data-testid="undo-btn"]');
+  const redoBtn = page.locator('[data-testid="redo-btn"]');
+  const newBtn = page.locator('[data-testid="new-btn"]');
+
+  // 2. Initially, undo & redo should be disabled
+  await expect(undoBtn).toBeDisabled();
+  await expect(redoBtn).toBeDisabled();
+
+  // 3. Add a text element
+  await page.locator('text=文本').first().click();
+  await page.locator('[data-testid="add-main-title-btn"]').click();
+
+  const board = page.locator('[data-testid="canvas-board"]');
+  await expect(board).toContainText('主标题');
+
+  // 4. After adding, Undo should be enabled, Redo should be disabled
+  await expect(undoBtn).toBeEnabled();
+  await expect(redoBtn).toBeDisabled();
+
+  // 5. Change text content
+  const textarea = page.locator('[data-testid="text-content-input"]');
+  await textarea.fill('E2E Undo Test');
+  await expect(board).toContainText('E2E Undo Test');
+
+  // 6. Click Undo -> Text content should revert to \'主标题\'
+  await undoBtn.click();
+  await expect(board).toContainText('主标题');
+  await expect(undoBtn).toBeEnabled();
+  await expect(redoBtn).toBeEnabled();
+
+  // 7. Click Undo again -> Text element should be removed from board completely
+  await undoBtn.click();
+  await expect(board).not.toContainText('主标题');
+  await expect(undoBtn).toBeDisabled();
+  await expect(redoBtn).toBeEnabled();
+
+  // 8. Click Redo -> Text element is restored with default text \'主标题\'
+  await redoBtn.click();
+  await expect(board).toContainText('主标题');
+  await expect(undoBtn).toBeEnabled();
+  await expect(redoBtn).toBeEnabled();
+
+  // 9. Click Redo again -> Text content is restored to \'E2E Undo Test\'
+  await redoBtn.click();
+  await expect(board).toContainText('E2E Undo Test');
+  await expect(undoBtn).toBeEnabled();
+  await expect(redoBtn).toBeDisabled();
+
+  // 10. Click New button -> The entire workspace should be cleared
+  await newBtn.click();
+  await expect(board).not.toContainText('E2E Undo Test');
+  await expect(undoBtn).toBeDisabled();
+  await expect(redoBtn).toBeDisabled();
+});

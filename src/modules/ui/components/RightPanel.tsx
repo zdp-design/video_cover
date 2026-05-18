@@ -17,7 +17,11 @@ import {
   VerticalAlignBottomOutlined,
 } from '@ant-design/icons';
 import { useEditorStore } from '../../state/store';
-import type { TextElement, StickerElement, BaseElement } from '../../state/types';
+import type {
+  TextElement,
+  StickerElement,
+  BaseElement,
+} from '../../state/types';
 
 export const RightPanel: React.FC = () => {
   const selection = useEditorStore((state) => state.selection);
@@ -154,7 +158,11 @@ export const RightPanel: React.FC = () => {
           <div style={{ marginBottom: 8 }}>字重</div>
           <Select
             data-testid="text-fontweight-input"
-            value={textEl.fontWeight !== undefined ? String(textEl.fontWeight) : undefined}
+            value={
+              textEl.fontWeight !== undefined
+                ? String(textEl.fontWeight)
+                : undefined
+            }
             onChange={handleFontWeightChange}
             style={{ width: '100%' }}
             options={[

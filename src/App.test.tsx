@@ -153,4 +153,49 @@ describe('App Layout & Canvas Size & Selection', () => {
     expect(elements[1].id).toBe('elA');
     expect(elements[1].zIndex).toBe(1);
   });
+
+  it('组件测试：顶部工具栏 撤销/重做/新建 按钮状态响应与事件驱动', async () => {
+    render(<App />);
+
+    // 1. Initially, undo & redo buttons should be disabled, new button enabled
+    const undoBtn = screen.getByTestId('undo-btn');
+    const redoBtn = screen.getByTestId('redo-btn');
+    const newBtn = screen.getByTestId('new-btn');
+
+    expect(undoBtn).toBeDisabled();
+    expect(redoBtn).toBeDisabled();
+    expect(newBtn).toBeEnabled();
+
+    // 2. Click '文本' -> '添加主标题' to create a history event
+    const textTab = screen.getByText('文本');
+    fireEvent.click(textTab);
+    const addMainTitleBtn = await screen.findByTestId('add-main-title-btn');
+    fireEvent.click(addMainTitleBtn);
+
+    // 3. Now undoBtn should be enabled, redoBtn should still be disabled
+    expect(undoBtn).toBeEnabled();
+    expect(redoBtn).toBeDisabled();
+
+    // 4. Click undoBtn -> element should be undone
+    fireEvent.click(undoBtn);
+    expect(useEditorStore.getState().elements).toHaveLength(0);
+
+    // 5. After undo, undoBtn should be disabled, and redoBtn should be enabled
+    expect(undoBtn).toBeDisabled();
+    expect(redoBtn).toBeEnabled();
+
+    // 6. Click redoBtn -> element should be restored
+    fireEvent.click(redoBtn);
+    expect(useEditorStore.getState().elements).toHaveLength(1);
+
+    // 7. Re-verify button states
+    expect(undoBtn).toBeEnabled();
+    expect(redoBtn).toBeDisabled();
+
+    // 8. Click newBtn -> store should be fully reset
+    fireEvent.click(newBtn);
+    expect(useEditorStore.getState().elements).toHaveLength(0);
+    expect(undoBtn).toBeDisabled();
+    expect(redoBtn).toBeDisabled();
+  });
 });

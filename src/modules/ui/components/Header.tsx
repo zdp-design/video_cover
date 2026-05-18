@@ -6,6 +6,7 @@ import {
   DownloadOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
+import { useEditorStore } from '../../state/store';
 
 const { Title } = Typography;
 
@@ -25,6 +26,12 @@ export const Header: React.FC<HeaderProps> = ({
   setCanvasSize,
 }) => {
   const currentValue = `${canvasSize.width}x${canvasSize.height}`;
+
+  const past = useEditorStore((state) => state.past);
+  const future = useEditorStore((state) => state.future);
+  const undo = useEditorStore((state) => state.undo);
+  const redo = useEditorStore((state) => state.redo);
+  const resetStore = useEditorStore((state) => state.resetStore);
 
   const handleChange = (value: string) => {
     const preset = PRESETS.find((p) => p.value === value);
@@ -58,9 +65,29 @@ export const Header: React.FC<HeaderProps> = ({
         />
       </Space>
       <Space>
-        <Button icon={<PlusOutlined />}>新建</Button>
-        <Button icon={<UndoOutlined />}>撤销</Button>
-        <Button icon={<RedoOutlined />}>重做</Button>
+        <Button
+          data-testid="new-btn"
+          icon={<PlusOutlined />}
+          onClick={resetStore}
+        >
+          新建
+        </Button>
+        <Button
+          data-testid="undo-btn"
+          icon={<UndoOutlined />}
+          onClick={undo}
+          disabled={past.length === 0}
+        >
+          撤销
+        </Button>
+        <Button
+          data-testid="redo-btn"
+          icon={<RedoOutlined />}
+          onClick={redo}
+          disabled={future.length === 0}
+        >
+          重做
+        </Button>
         <Button type="primary" icon={<DownloadOutlined />}>
           导出
         </Button>

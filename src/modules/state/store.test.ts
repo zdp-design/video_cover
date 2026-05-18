@@ -125,10 +125,18 @@ describe('Editor Store', () => {
 describe('Type Tests', () => {
   it('should fail compilation if invalid fields are passed to addElement input', () => {
     // @ts-expect-error - extraField is not allowed in CreateElementInput
-    const _elementA: CreateElementInput = { type: 'text', extraField: 123, content: 'test' };
+    void ({
+      type: 'text',
+      extraField: 123,
+      content: 'test',
+    } as CreateElementInput);
 
     // @ts-expect-error - fill should be string, not number
-    const _elementB: CreateElementInput = { type: 'text', fill: 123, content: 'test' };
+    void ({
+      type: 'text',
+      fill: 123,
+      content: 'test',
+    } as CreateElementInput);
 
     expect(true).toBe(true); // Dummy assertion to satisfy Vitest test requirement
   });
