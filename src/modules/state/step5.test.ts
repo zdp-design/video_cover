@@ -110,7 +110,7 @@ describe('Step 5 Text Elements tests', () => {
     const validated = validateAndFilterElement(rawExternalInput);
     expect(validated).not.toBeNull();
     if (validated) {
-      expect(validated.content).toBe('MVP Text');
+      expect((validated as TextElement).content).toBe('MVP Text');
       expect(
         (validated as unknown as Record<string, unknown>).strokeColor,
       ).toBeUndefined();

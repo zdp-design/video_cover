@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi, expectTypeOf } from 'vitest';
-import { useEditorStore, CreateElementInput } from './store';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { useEditorStore } from './store';
+import type { CreateElementInput } from './store';
 import type { TextElement } from './types';
 
 describe('Editor Store', () => {
@@ -123,19 +124,12 @@ describe('Editor Store', () => {
 
 describe('Type Tests', () => {
   it('should fail compilation if invalid fields are passed to addElement input', () => {
-    // Type testing with expectTypeOf
-    // This checks that { type: 'text', extraField: 123 } does NOT match CreateElementInput
-    expectTypeOf<{
-      type: 'text';
-      extraField: number;
-      content: string;
-    }>().not.toMatchTypeOf<CreateElementInput>();
+    // @ts-expect-error - extraField is not allowed in CreateElementInput
+    const _elementA: CreateElementInput = { type: 'text', extraField: 123, content: 'test' };
 
-    // fill should be string, not number
-    expectTypeOf<{
-      type: 'text';
-      fill: number;
-      content: string;
-    }>().not.toMatchTypeOf<CreateElementInput>();
+    // @ts-expect-error - fill should be string, not number
+    const _elementB: CreateElementInput = { type: 'text', fill: 123, content: 'test' };
+
+    expect(true).toBe(true); // Dummy assertion to satisfy Vitest test requirement
   });
 });

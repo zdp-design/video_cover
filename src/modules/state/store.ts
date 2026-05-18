@@ -10,9 +10,9 @@ import type {
 import { validateAndFilterElement } from './schema';
 
 export type CreateElementInput =
-  | (Omit<TextElement, keyof BaseElement> &
+  | (Partial<Omit<TextElement, keyof BaseElement>> &
       Partial<BaseElement> & { type: 'text' })
-  | (Omit<StickerElement, keyof BaseElement> &
+  | (Partial<Omit<StickerElement, keyof BaseElement>> &
       Partial<BaseElement> & { type: 'sticker' });
 
 export interface HistoryState {

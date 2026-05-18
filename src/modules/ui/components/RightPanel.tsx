@@ -17,7 +17,7 @@ import {
   VerticalAlignBottomOutlined,
 } from '@ant-design/icons';
 import { useEditorStore } from '../../state/store';
-import type { TextElement, StickerElement } from '../../state/types';
+import type { TextElement, StickerElement, BaseElement } from '../../state/types';
 
 export const RightPanel: React.FC = () => {
   const selection = useEditorStore((state) => state.selection);
@@ -154,7 +154,7 @@ export const RightPanel: React.FC = () => {
           <div style={{ marginBottom: 8 }}>字重</div>
           <Select
             data-testid="text-fontweight-input"
-            value={textEl.fontWeight}
+            value={textEl.fontWeight !== undefined ? String(textEl.fontWeight) : undefined}
             onChange={handleFontWeightChange}
             style={{ width: '100%' }}
             options={[
@@ -244,12 +244,13 @@ export const RightPanel: React.FC = () => {
     );
   }
 
+  const element = selectedElement as BaseElement;
   return (
     <div style={{ padding: 20 }}>
       <h3>元素属性</h3>
-      <p>名称: {selectedElement.name}</p>
-      <p>类型: {selectedElement.type}</p>
-      {renderLayerControls(selectedElement.id)}
+      <p>名称: {element.name}</p>
+      <p>类型: {element.type}</p>
+      {renderLayerControls(element.id)}
     </div>
   );
 };
