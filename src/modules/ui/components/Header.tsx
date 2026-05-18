@@ -1,0 +1,70 @@
+import React from 'react';
+import { Button, Space, Typography, Select } from 'antd';
+import {
+  UndoOutlined,
+  RedoOutlined,
+  DownloadOutlined,
+  PlusOutlined,
+} from '@ant-design/icons';
+
+const { Title } = Typography;
+
+interface HeaderProps {
+  canvasSize: { width: number; height: number };
+  setCanvasSize: (size: { width: number; height: number }) => void;
+}
+
+const PRESETS = [
+  { label: '1080x1920 (竖屏)', value: '1080x1920', width: 1080, height: 1920 },
+  { label: '1080x1440 (3:4)', value: '1080x1440', width: 1080, height: 1440 },
+  { label: '1080x1080 (1:1)', value: '1080x1080', width: 1080, height: 1080 },
+];
+
+export const Header: React.FC<HeaderProps> = ({
+  canvasSize,
+  setCanvasSize,
+}) => {
+  const currentValue = `${canvasSize.width}x${canvasSize.height}`;
+
+  const handleChange = (value: string) => {
+    const preset = PRESETS.find((p) => p.value === value);
+    if (preset) {
+      setCanvasSize({ width: preset.width, height: preset.height });
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        height: '100%',
+        padding: '0 20px',
+        borderBottom: '1px solid #e8e8e8',
+        background: '#fff',
+      }}
+    >
+      <Space size="large">
+        <Title level={4} style={{ margin: 0 }}>
+          封面编辑器
+        </Title>
+        <Select
+          data-testid="canvas-size-select"
+          value={currentValue}
+          style={{ width: 160 }}
+          onChange={handleChange}
+          options={PRESETS.map((p) => ({ label: p.label, value: p.value }))}
+        />
+      </Space>
+      <Space>
+        <Button icon={<PlusOutlined />}>新建</Button>
+        <Button icon={<UndoOutlined />}>撤销</Button>
+        <Button icon={<RedoOutlined />}>重做</Button>
+        <Button type="primary" icon={<DownloadOutlined />}>
+          导出
+        </Button>
+      </Space>
+    </div>
+  );
+};
