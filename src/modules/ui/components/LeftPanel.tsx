@@ -177,7 +177,7 @@ export const LeftPanel: React.FC = () => {
         borderRight: '1px solid #e8e8e8',
       }}
     >
-      <Tabs tabPosition="left" items={items} style={{ height: '100%' }} />
+      <Tabs tabPlacement="start" items={items} style={{ height: '100%' }} />
     </div>
   );
 };
