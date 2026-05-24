@@ -8,6 +8,8 @@ import type {
   BaseElement,
 } from './types';
 import { validateAndFilterElement } from './schema';
+import type { ValidTemplate } from '../templates/schema';
+import { saveDraft } from '../storage/draft';
 
 export type CreateElementInput =
   | (Partial<Omit<TextElement, keyof BaseElement>> &
@@ -26,6 +28,8 @@ export interface EditorStore {
   theme: ThemeColors;
   elements: EditorElement[];
   selection: string | null;
+  isDirty: boolean;
+  currentTemplateName: string | null;
 
   // History Stacks (MVP max 50 steps, FIFO)
   past: HistoryState[];
@@ -56,6 +60,8 @@ export interface EditorStore {
 
   // Import
   importElements: (elements: unknown[]) => void;
+  applyTemplate: (template: ValidTemplate) => void;
+  saveDraftSnapshot: () => void;
   resetStore: () => void;
 }
 
@@ -65,7 +71,7 @@ const DEFAULT_CANVAS: CanvasConfig = {
   backgroundColor: '#ffffff',
 };
 
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 50; // MVP: max 50 undo steps to limit memory usage (FIFO queue)
 
 function createHistorySnapshot(state: EditorStore): HistoryState {
   return {
@@ -80,6 +86,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   theme: {},
   elements: [],
   selection: null,
+  isDirty: false,
+  currentTemplateName: null,
   past: [],
   future: [],
 
@@ -89,6 +97,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       canvas: { ...state.canvas, width, height },
       past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
   },
 
@@ -98,6 +107,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       canvas: { ...state.canvas, backgroundColor },
       past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
   },
 
@@ -107,6 +117,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       theme,
       past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
   },
 
@@ -115,7 +126,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     // Generate complete defaults for base fields
     const baseDefaults: BaseElement = {
-      id: input.id || `el_${Math.random().toString(36).substring(2, 9)}`,
+      id: input.id || crypto.randomUUID(),
       type: input.type,
       name: input.name || (input.type === 'text' ? '文本元素' : '贴纸元素'),
       x: input.x ?? 0,
@@ -168,6 +179,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       selection: fullElement.id, // Auto-select on creation
       past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
   },
 
@@ -181,6 +193,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         selection: isSelected ? null : state.selection, // Correct rollback
         past: [...state.past, snap].slice(-MAX_HISTORY),
         future: [],
+        isDirty: true,
       };
     });
   },
@@ -191,6 +204,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         elements: state.elements.map((el) =>
           el.id === id ? ({ ...el, ...updates } as EditorElement) : el,
         ),
+        isDirty: true,
       }));
     } else {
       const snap = createHistorySnapshot(get());
@@ -200,6 +214,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         ),
         past: [...state.past, snap].slice(-MAX_HISTORY),
         future: [],
+        isDirty: true,
       }));
     }
   },
@@ -231,10 +246,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       zIndex: idx,
     }));
 
-    set(() => ({
+    set((state) => ({
       elements: updatedElements,
-      past: [...get().past, snap].slice(-MAX_HISTORY),
+      past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
   },
 
@@ -254,10 +270,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       zIndex: idx,
     }));
 
-    set(() => ({
+    set((state) => ({
       elements: updatedElements,
-      past: [...get().past, snap].slice(-MAX_HISTORY),
+      past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
   },
 
@@ -277,10 +294,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       zIndex: idx,
     }));
 
-    set(() => ({
+    set((state) => ({
       elements: updatedElements,
-      past: [...get().past, snap].slice(-MAX_HISTORY),
+      past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
   },
 
@@ -299,10 +317,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       zIndex: idx,
     }));
 
-    set(() => ({
+    set((state) => ({
       elements: updatedElements,
-      past: [...get().past, snap].slice(-MAX_HISTORY),
+      past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
   },
 
@@ -325,6 +344,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
           : null,
       past: newPast,
       future: [currentSnap, ...future].slice(-MAX_HISTORY),
+      isDirty: true,
     }));
   },
 
@@ -346,6 +366,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
           : null,
       past: [...past, currentSnap].slice(-MAX_HISTORY),
       future: newFuture,
+      isDirty: true,
     }));
   },
 
@@ -362,10 +383,40 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     set(() => ({
       elements: validElements,
-      selection: null,
+      selection: validElements.length > 0 ? validElements[0].id : null,
       past: [...get().past, snap].slice(-MAX_HISTORY),
       future: [],
+      isDirty: true,
     }));
+  },
+
+  applyTemplate: (template) => {
+    set(() => ({
+      canvas: { ...template.canvas },
+      theme: { ...template.theme },
+      elements: template.elements.map((element) => ({ ...element })),
+      selection: null,
+      past: [],
+      future: [],
+      isDirty: false,
+      currentTemplateName: template.meta.name,
+    }));
+  },
+
+  saveDraftSnapshot: () => {
+    const state = get();
+    saveDraft({
+      canvas: state.canvas,
+      theme: state.theme,
+      elements: state.elements,
+      selection: state.selection,
+      savedAt: new Date().toISOString(),
+    }).then((saved) => {
+      if (!saved) {
+        console.warn('Failed to save draft. IndexedDB may be unavailable.');
+      }
+    });
+    set(() => ({ isDirty: false }));
   },
 
   resetStore: () => {
@@ -374,6 +425,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       theme: {},
       elements: [],
       selection: null,
+      isDirty: false,
+      currentTemplateName: null,
       past: [],
       future: [],
     });

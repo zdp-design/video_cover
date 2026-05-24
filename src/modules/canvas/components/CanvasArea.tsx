@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '../../state/store';
 import type { TextElement, StickerElement } from '../../state/types';
+import { sanitizeSvg } from '../../../utils/sanitize';
 
 interface CanvasAreaProps {
   canvasSize: { width: number; height: number };
 }
 
-export const CanvasArea: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
+const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const elements = useEditorStore((state) => state.elements);
@@ -38,6 +39,43 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
       (e.target as HTMLElement).getAttribute('data-testid') === 'canvas-board'
     ) {
       selectElement(null);
+    }
+  };
+
+  // Apply a transform update to an element, returning the updates object
+  const computeTransformUpdate = (
+    action: 'drag' | 'resize' | 'rotate',
+    clientX: number,
+    clientY: number,
+    startX: number,
+    startY: number,
+    startElX: number,
+    startElY: number,
+    startScaleX: number,
+    startScaleY: number,
+    startRotation: number,
+    cx: number,
+    cy: number,
+    startDist: number,
+    startAngle: number,
+  ): Partial<{ x: number; y: number; scaleX: number; scaleY: number; rotation: number }> => {
+    if (action === 'drag') {
+      const dx = (clientX - startX) / scale;
+      const dy = (clientY - startY) / scale;
+      return { x: startElX + dx, y: startElY + dy };
+    } else if (action === 'resize') {
+      const curDist = Math.sqrt((clientX - cx) ** 2 + (clientY - cy) ** 2);
+      const ratio = startDist > 0 ? curDist / startDist : 1;
+      const newScaleX = Math.max(0.1, startScaleX * ratio);
+      const newScaleY = Math.max(0.1, startScaleY * ratio);
+      return { scaleX: newScaleX, scaleY: newScaleY };
+    } else {
+      const angleRad = Math.atan2(clientY - cy, clientX - cx);
+      const angleDiff = angleRad - startAngle;
+      const angleDiffDeg = (angleDiff * 180) / Math.PI;
+      let newRotation = (startRotation + angleDiffDeg) % 360;
+      if (newRotation < 0) newRotation += 360;
+      return { rotation: Math.round(newRotation) };
     }
   };
 
@@ -103,98 +141,46 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
             const startAngle = Math.atan2(startY - cy, startX - cx);
 
             const handleMouseMove = (moveEvent: MouseEvent) => {
-              if (action === 'drag') {
-                const dx = (moveEvent.clientX - startX) / scale;
-                const dy = (moveEvent.clientY - startY) / scale;
-                useEditorStore.getState().updateElement(
-                  el.id,
-                  {
-                    x: startElX + dx,
-                    y: startElY + dy,
-                  },
-                  true,
-                );
-              } else if (action === 'resize') {
-                const curDist = Math.sqrt(
-                  (moveEvent.clientX - cx) ** 2 + (moveEvent.clientY - cy) ** 2,
-                );
-                const ratio = startDist > 0 ? curDist / startDist : 1;
-                const newScaleX = Math.max(0.1, startScaleX * ratio);
-                const newScaleY = Math.max(0.1, startScaleY * ratio);
-                useEditorStore.getState().updateElement(
-                  el.id,
-                  {
-                    scaleX: newScaleX,
-                    scaleY: newScaleY,
-                  },
-                  true,
-                );
-              } else if (action === 'rotate') {
-                const angleRad = Math.atan2(
-                  moveEvent.clientY - cy,
-                  moveEvent.clientX - cx,
-                );
-                const angleDiff = angleRad - startAngle;
-                const angleDiffDeg = (angleDiff * 180) / Math.PI;
-                let newRotation = (startRotation + angleDiffDeg) % 360;
-                if (newRotation < 0) newRotation += 360;
-                useEditorStore.getState().updateElement(
-                  el.id,
-                  {
-                    rotation: Math.round(newRotation),
-                  },
-                  true,
-                );
-              }
+              const updates = computeTransformUpdate(
+                action,
+                moveEvent.clientX,
+                moveEvent.clientY,
+                startX,
+                startY,
+                startElX,
+                startElY,
+                startScaleX,
+                startScaleY,
+                startRotation,
+                cx,
+                cy,
+                startDist,
+                startAngle,
+              );
+              useEditorStore.getState().updateElement(el.id, updates, true);
             };
 
             const handleMouseUp = (upEvent: MouseEvent) => {
               window.removeEventListener('mousemove', handleMouseMove);
               window.removeEventListener('mouseup', handleMouseUp);
 
-              if (action === 'drag') {
-                const dx = (upEvent.clientX - startX) / scale;
-                const dy = (upEvent.clientY - startY) / scale;
-                useEditorStore.getState().updateElement(
-                  el.id,
-                  {
-                    x: startElX + dx,
-                    y: startElY + dy,
-                  },
-                  false,
-                );
-              } else if (action === 'resize') {
-                const curDist = Math.sqrt(
-                  (upEvent.clientX - cx) ** 2 + (upEvent.clientY - cy) ** 2,
-                );
-                const ratio = startDist > 0 ? curDist / startDist : 1;
-                const newScaleX = Math.max(0.1, startScaleX * ratio);
-                const newScaleY = Math.max(0.1, startScaleY * ratio);
-                useEditorStore.getState().updateElement(
-                  el.id,
-                  {
-                    scaleX: newScaleX,
-                    scaleY: newScaleY,
-                  },
-                  false,
-                );
-              } else if (action === 'rotate') {
-                const angleRad = Math.atan2(
-                  upEvent.clientY - cy,
-                  upEvent.clientX - cx,
-                );
-                const angleDiff = angleRad - startAngle;
-                const angleDiffDeg = (angleDiff * 180) / Math.PI;
-                let newRotation = (startRotation + angleDiffDeg) % 360;
-                if (newRotation < 0) newRotation += 360;
-                useEditorStore.getState().updateElement(
-                  el.id,
-                  {
-                    rotation: Math.round(newRotation),
-                  },
-                  false,
-                );
-              }
+              const updates = computeTransformUpdate(
+                action,
+                upEvent.clientX,
+                upEvent.clientY,
+                startX,
+                startY,
+                startElX,
+                startElY,
+                startScaleX,
+                startScaleY,
+                startRotation,
+                cx,
+                cy,
+                startDist,
+                startAngle,
+              );
+              useEditorStore.getState().updateElement(el.id, updates, false);
             };
 
             window.addEventListener('mousemove', handleMouseMove);
@@ -235,7 +221,9 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
                     justifyContent: 'center',
                     userSelect: 'none',
                   }}
-                  dangerouslySetInnerHTML={{ __html: stickerEl.assetSource }}
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeSvg(stickerEl.assetSource),
+                  }}
                 />
               );
             }
@@ -270,6 +258,8 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
                         (el as TextElement).textAlign === 'right'
                       ? 'flex-end'
                       : 'flex-start',
+                // Locked elements are non-interactive - prevent click/select
+                pointerEvents: el.locked ? 'none' : 'auto',
               }}
             >
               {renderInnerContent()}
@@ -381,3 +371,12 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
     </div>
   );
 };
+
+const areEqual = (prev: CanvasAreaProps, next: CanvasAreaProps) => {
+  return (
+    prev.canvasSize.width === next.canvasSize.width &&
+    prev.canvasSize.height === next.canvasSize.height
+  );
+};
+
+export const CanvasArea = React.memo(CanvasAreaComponent, areEqual);

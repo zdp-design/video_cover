@@ -387,3 +387,197 @@ test('can use undo, redo, and new functionalities in the editor', async ({
   await expect(undoBtn).toBeDisabled();
   await expect(redoBtn).toBeDisabled();
 });
+
+test('step10: can apply template from empty canvas and edit title', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  await page.locator('text=模板').first().click();
+  await page
+    .locator('[data-testid="apply-template-tpl_ecommerce_flash_sale"]')
+    .click();
+
+  const board = page.locator('[data-testid="canvas-board"]');
+  await expect(board).toContainText('今日限时 5 折');
+
+  await page.locator('[data-testid="canvas-element-tpl1_title"]').click();
+  const textarea = page.locator('[data-testid="text-content-input"]');
+  await textarea.fill('模板标题已修改');
+  await expect(board).toContainText('模板标题已修改');
+});
+
+test('step10: applying template with unsaved changes shows confirm and branches work', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  await page.locator('text=文本').first().click();
+  await page.locator('[data-testid="add-main-title-btn"]').click();
+
+  await page.locator('text=模板').first().click();
+  await page
+    .locator('[data-testid="apply-template-tpl_ecommerce_price_compare"]')
+    .click();
+  await expect(
+    page.locator('[data-testid="template-apply-direct-btn"]'),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: /取\s*消/ }).click();
+  await expect(page.locator('[data-testid="canvas-board"]')).toContainText(
+    '主标题',
+  );
+
+  await page
+    .locator('[data-testid="apply-template-tpl_ecommerce_price_compare"]')
+    .click();
+  await page.locator('[data-testid="template-apply-direct-btn"]').click();
+  await expect(page.locator('[data-testid="canvas-board"]')).toContainText(
+    '到手价直降 120 元',
+  );
+});
+
+test('step11: export modal opens and shows correct defaults', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  // Open export modal
+  await page.locator('[data-testid="export-btn"]').click();
+
+  // Modal title should be visible
+  await expect(page.getByText('导出封面')).toBeVisible();
+
+  // Format: PNG should be selected by default
+  await expect(page.getByLabel('PNG')).toBeChecked();
+
+  // Clarity: 标准 (1x) should be selected by default
+  await expect(page.getByLabel(/标准.*1x.*1080x1920/)).toBeChecked();
+});
+
+test('step11: export modal filename preview updates with format and clarity', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  // Open export modal
+  await page.locator('[data-testid="export-btn"]').click();
+
+  // Default: PNG, 1x - filename should contain .png
+  const defaultPreview = page.locator('text=文件名:');
+  await expect(defaultPreview).toContainText('.png');
+
+  // Switch to JPEG - extension should change to .jpg
+  await page.getByLabel('JPEG').click();
+  await expect(defaultPreview).toContainText('.jpg');
+
+  // Switch to PNG
+  await page.getByLabel('PNG').click();
+  await expect(defaultPreview).toContainText('.png');
+
+  // Switch to 高清 (2x) - filename shows scale as '2x' (physical pixels = canvas * scale)
+  await page.getByLabel(/高清.*2x.*2160x3840/).click();
+  await expect(defaultPreview).toContainText('2x_');
+});
+
+test('step11: export modal opens, closes via backdrop, and export button triggers flow', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  // Open export modal
+  await page.locator('[data-testid="export-btn"]').click();
+  await expect(page.getByText('导出封面')).toBeVisible();
+
+  // Click on modal backdrop to close (alternative to cancel button)
+  await page.locator('.ant-modal-wrap').click({ position: { x: 10, y: 10 } });
+  await expect(page.getByText('导出封面')).not.toBeVisible();
+
+  // Open again and click the export (OK) button in the modal footer
+  await page.locator('[data-testid="export-btn"]').click();
+  await expect(page.getByText('导出封面')).toBeVisible();
+
+  // Click the export/OK button (has okText="导出")
+  await page.locator('.ant-modal-footer .ant-btn-primary').click();
+
+  // Modal should close after export
+  await expect(page.getByText('导出封面')).not.toBeVisible();
+
+  // Editor should still be functional (no crash)
+  await expect(page.locator('[data-testid="canvas-board"]')).toBeVisible();
+});
+
+test('step12: full MVP flow - select size, add elements, export', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  // 1. Verify default 1080x1920 canvas
+  const board = page.locator('[data-testid="canvas-board"]');
+  await expect(board).toHaveCSS('width', '1080px');
+  await expect(board).toHaveCSS('height', '1920px');
+
+  // 2. Add main title text
+  await page.locator('text=文本').first().click();
+  await page.locator('[data-testid="add-main-title-btn"]').click();
+  await expect(board).toContainText('主标题');
+
+  // 3. Add sticker
+  await page.locator('text=贴纸').first().click();
+  await page.locator('[data-testid="sticker-item-price_tag_1"]').click();
+  // Sticker should render its SVG
+  const stickerElement = board
+    .locator('[data-testid^="canvas-element-"]')
+    .nth(1);
+  const stickerInner = stickerElement.locator(
+    '[data-testid^="canvas-sticker-inner-"]',
+  );
+  await expect(stickerInner).toBeVisible();
+
+  // 4. Apply template
+  await page.locator('text=模板').first().click();
+  await page
+    .locator('[data-testid="apply-template-tpl_ecommerce_flash_sale"]')
+    .click();
+  // Modal should open for unsaved changes
+  await expect(
+    page.locator('[data-testid="template-apply-direct-btn"]'),
+  ).toBeVisible();
+  await page.locator('[data-testid="template-apply-direct-btn"]').click();
+
+  // Template text should appear
+  await expect(board).toContainText('今日限时 5 折');
+
+  // 5. Edit text content
+  await page.locator('[data-testid="canvas-element-tpl1_title"]').click();
+  const textarea = page.locator('[data-testid="text-content-input"]');
+  await textarea.fill('E2E 全流程测试');
+  await expect(board).toContainText('E2E 全流程测试');
+
+  // 6. Undo/redo text edit
+  const undoBtn = page.locator('[data-testid="undo-btn"]');
+  await undoBtn.click();
+  await expect(board).not.toContainText('E2E 全流程测试');
+
+  const redoBtn = page.locator('[data-testid="redo-btn"]');
+  await redoBtn.click();
+  await expect(board).toContainText('E2E 全流程测试');
+
+  // 7. Export PNG standard - verify modal opens and closes after export
+  await page.locator('[data-testid="export-btn"]').click();
+  await expect(page.getByText('导出封面')).toBeVisible();
+  await page.locator('.ant-modal-footer .ant-btn-primary').click();
+  await expect(page.getByText('导出封面')).not.toBeVisible();
+
+  // 8. Export JPEG high definition (open modal again)
+  await page.locator('[data-testid="export-btn"]').click();
+  await page.getByLabel('JPEG').click();
+  await page.getByLabel(/高清.*2x.*2160x3840/).click();
+  await page.locator('.ant-modal-footer .ant-btn-primary').click();
+  await expect(page.getByText('导出封面')).not.toBeVisible();
+
+  // 9. Verify editor still editable after export (selection preserved)
+  await expect(
+    page.locator('[data-testid="active-element-panel"]'),
+  ).toBeVisible();
+});

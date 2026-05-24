@@ -1,11 +1,17 @@
 import React from 'react';
-import { Tabs, Button } from 'antd';
+import { Tabs, Button, Modal, message } from 'antd';
 import type { TabsProps } from 'antd';
 import { useEditorStore } from '../../state/store';
 import { STICKER_REGISTRY } from '../../stickers/registry';
+import { BUILTIN_TEMPLATES } from '../../templates/builtins';
+import { validateTemplateSchema } from '../../templates/schema';
+import { sanitizeSvg } from '../../../utils/sanitize';
 
 export const LeftPanel: React.FC = () => {
   const addElement = useEditorStore((state) => state.addElement);
+  const isDirty = useEditorStore((state) => state.isDirty);
+  const applyTemplate = useEditorStore((state) => state.applyTemplate);
+  const saveDraftSnapshot = useEditorStore((state) => state.saveDraftSnapshot);
 
   const handleAddMainTitle = () => {
     addElement({
@@ -57,11 +63,80 @@ export const LeftPanel: React.FC = () => {
     });
   };
 
+  const loadTemplate = (templateId: string) => {
+    const rawTemplate = BUILTIN_TEMPLATES.find(
+      (item) => item.meta.id === templateId,
+    );
+    if (!rawTemplate) {
+      message.error('模板不存在');
+      return;
+    }
+    const validated = validateTemplateSchema(rawTemplate);
+    if (!validated) {
+      message.error('模板数据校验失败');
+      return;
+    }
+    applyTemplate(validated);
+    message.success(`已套用模板：${validated.meta.name}`);
+  };
+
+  const confirmApplyTemplate = (templateId: string) => {
+    if (!isDirty) {
+      loadTemplate(templateId);
+      return;
+    }
+
+    Modal.confirm({
+      title: '检测到未保存改动',
+      content: '套用模板会覆盖当前画布内容。请选择处理方式：',
+      okText: '保存草稿后覆盖',
+      cancelText: '取消',
+      onOk: () => {
+        saveDraftSnapshot();
+        loadTemplate(templateId);
+      },
+      footer: (_, { OkBtn, CancelBtn }) => (
+        <>
+          <OkBtn />
+          <Button
+            data-testid="template-apply-direct-btn"
+            onClick={() => {
+              Modal.destroyAll();
+              loadTemplate(templateId);
+            }}
+          >
+            直接覆盖
+          </Button>
+          <CancelBtn />
+        </>
+      ),
+    });
+  };
+
   const items: TabsProps['items'] = [
     {
       key: 'template',
       label: '模板',
-      children: <div style={{ padding: 16 }}>模板占位</div>,
+      children: (
+        <div
+          style={{
+            padding: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          {BUILTIN_TEMPLATES.map((template) => (
+            <Button
+              key={template.meta.id}
+              data-testid={`apply-template-${template.meta.id}`}
+              onClick={() => confirmApplyTemplate(template.meta.id)}
+            >
+              {template.meta.name}
+            </Button>
+          ))}
+        </div>
+      ),
     },
     {
       key: 'text',
@@ -152,7 +227,9 @@ export const LeftPanel: React.FC = () => {
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
-                dangerouslySetInnerHTML={{ __html: sticker.svgSource }}
+                dangerouslySetInnerHTML={{
+                  __html: sanitizeSvg(sticker.svgSource),
+                }}
               />
               <span style={{ fontSize: 12, marginTop: 4, color: '#666' }}>
                 {sticker.name}
@@ -165,7 +242,7 @@ export const LeftPanel: React.FC = () => {
     {
       key: 'theme',
       label: '配色',
-      children: <div style={{ padding: 16 }}>配色占位</div>,
+      children: <div style={{ padding: 16, color: '#999' }}>TODO: 配色方案功能开发中</div>,
     },
   ];
 
@@ -181,3 +258,5 @@ export const LeftPanel: React.FC = () => {
     </div>
   );
 };
+
+export const MemoizedLeftPanel = React.memo(LeftPanel);

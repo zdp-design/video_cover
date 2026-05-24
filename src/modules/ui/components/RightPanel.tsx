@@ -10,6 +10,7 @@ import {
   Tooltip,
   Space,
 } from 'antd';
+import type { Color } from 'antd/es/color-picker';
 import {
   VerticalAlignTopOutlined,
   ArrowUpOutlined,
@@ -115,7 +116,7 @@ export const RightPanel: React.FC = () => {
       updateElement(textEl.id, { textAlign: e.target.value });
     };
 
-    const handleColorChange = (color: { toHexString: () => string }) => {
+    const handleColorChange = (color: Color) => {
       updateElement(textEl.id, { fill: color.toHexString() });
     };
 
@@ -262,3 +263,5 @@ export const RightPanel: React.FC = () => {
     </div>
   );
 };
+
+export const MemoizedRightPanel = React.memo(RightPanel);

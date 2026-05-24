@@ -1,7 +1,14 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import App from './App';
 import { useEditorStore } from './modules/state/store';
+
+// Mock the draft module to avoid IndexedDB in tests
+vi.mock('./modules/storage/draft', () => ({
+  saveDraft: vi.fn().mockResolvedValue(true),
+  loadDraft: vi.fn().mockResolvedValue(undefined),
+  deleteDraft: vi.fn().mockResolvedValue(true),
+}));
 
 describe('App Layout & Canvas Size & Selection', () => {
   beforeEach(() => {
@@ -197,5 +204,78 @@ describe('App Layout & Canvas Size & Selection', () => {
     expect(useEditorStore.getState().elements).toHaveLength(0);
     expect(undoBtn).toBeDisabled();
     expect(redoBtn).toBeDisabled();
+  });
+
+  it('Step10 组件测试：从空白画布套用模板并可修改主标题', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByText('模板'));
+    fireEvent.click(
+      screen.getByTestId('apply-template-tpl_ecommerce_flash_sale'),
+    );
+
+    expect(screen.getByTestId('canvas-board')).toHaveTextContent(
+      '今日限时 5 折',
+    );
+
+    act(() => {
+      useEditorStore
+        .getState()
+        .updateElement('tpl1_title', { content: '模板改字成功' });
+    });
+    expect(screen.getByTestId('canvas-board')).toHaveTextContent(
+      '模板改字成功',
+    );
+  });
+
+  it('Step10 组件测试：有未保存改动时三种确认分支行为符合预期', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByText('文本'));
+    fireEvent.click(await screen.findByTestId('add-main-title-btn'));
+    expect(useEditorStore.getState().isDirty).toBe(true);
+
+    fireEvent.click(screen.getByText('模板'));
+    fireEvent.click(
+      screen.getByTestId('apply-template-tpl_ecommerce_price_compare'),
+    );
+    expect(
+      (await screen.findAllByText('检测到未保存改动')).length,
+    ).toBeGreaterThan(0);
+
+    const cancelButtons = screen.getAllByRole('button', { name: /取\s*消/ });
+    fireEvent.click(cancelButtons[cancelButtons.length - 1]);
+    expect(useEditorStore.getState().elements[0].type).toBe('text');
+
+    fireEvent.click(
+      screen.getByTestId('apply-template-tpl_ecommerce_price_compare'),
+    );
+    fireEvent.click(await screen.findByTestId('template-apply-direct-btn'));
+    expect(screen.getByTestId('canvas-board')).toHaveTextContent(
+      '到手价直降 120 元',
+    );
+
+    act(() => {
+      useEditorStore
+        .getState()
+        .updateElement(useEditorStore.getState().elements[0].id, {
+          content: '再次变更',
+        });
+    });
+    fireEvent.click(
+      screen.getByTestId('apply-template-tpl_store_review_city_pick'),
+    );
+    const saveButtons = await screen.findAllByRole('button', {
+      name: '保存草稿后覆盖',
+    });
+    fireEvent.click(saveButtons[saveButtons.length - 1]);
+
+    // Wait for async saveDraft to be called
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const { saveDraft } = await import('./modules/storage/draft');
+    expect(saveDraft).toHaveBeenCalled();
   });
 });

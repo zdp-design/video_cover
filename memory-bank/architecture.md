@@ -28,15 +28,29 @@
 
 ### 3. `ui/` (UI 面板模块)
 - 包含编辑器周边的控制面板组件。
-- **`components/Header.tsx`**：顶部工具栏。承载了封面编辑器的标题、画布预设尺寸切换下拉菜单（Select），以及后续用于管理历史与新建/导出的按钮组。
-- **`components/LeftPanel.tsx`**：左侧素材面板。使用竖向 Tab 选项卡展示“模板”、“文本”、“贴纸”、“配色”栏目。
+- **`components/Header.tsx`**：顶部工具栏。承载了封面编辑器的标题、画布预设尺寸切换下拉菜单（Select），以及”新建/撤销/重做/导出”按钮组。导出按钮通过 `ExportModal` 提供 PNG/JPEG 导出选项。
+- **`components/LeftPanel.tsx`**：左侧素材面板。使用竖向 Tab 选项卡展示”模板”、”文本”、”贴纸”、”配色”栏目。
 - **`components/RightPanel.tsx`**：右侧属性编辑面板。已与 Zustand 的 `selection` 机制完全绑定。无选中元素时展示默认的 Empty “未选中元素”提示；当有元素被选中时，展示对应的属性编辑面板。
+- **`components/ExportModal.tsx`**：导出配置弹窗。提供格式（PNG/JPEG）和清晰度（标准 1x / 高清 2x）选项，预览导出文件名，触发实际导出流程。导出前临时隐藏选中框手柄，导出完成后恢复。
 
 ### 4. `template/` (模板数据模块)
 - 负责解析、加载和管理封面模板 JSON 数据。
+- **`types.ts`**：模板类型定义（`TemplateSchema`、`ValidTemplate`）。
+- **`schema.ts`**：模板校验器，验证 `version/meta/canvas/theme/elements` 顶层结构，复用元素的运行时白名单校验。
+- **`builtins.ts`**：3 套内置模板 JSON（带货 2 套、探店 1 套）。
+
+### 5. `stickers/` (贴纸资源模块)
+- 管理离线内置 SVG 贴纸资产注册表。
+- **`registry.ts`**：`STICKER_REGISTRY` 数组，包含 6 个 SVG 贴纸（价格标签 2、箭头 2、星标 1、推荐章 1），每条记录含 `id`、`name`、`category`、`svgSource`。所有 SVG 内联嵌入，完全离线可用。
 
 ### 5. `export/` (导出模块)
 - 负责最终封面的生成与导出逻辑，比如 Canvas 到 PNG/JPEG 的转换。
+- **`index.ts`**：导出核心工具函数：
+  - `sanitizeFilename`：净化文件名（移除非法字符、空格转连字符、100 字符截断）。
+  - `generateExportFilename`：按 `{name}_{width}x{height}_{scale}_{YYYYMMDD_HHmmss}.{ext}` 格式生成文件名。
+  - `exportToBlob`：使用 Canvas API + foreignObject 将 DOM 画布元素渲染为 PNG/JPEG Blob，支持 1x/2x 缩放，JPEG 固定质量 0.92。
+  - `downloadBlob`：触发浏览器文件下载。
+- **`index.test.ts`**：导出工具的单元测试，16 个用例覆盖文件名生成、格式化、边界情况。
 
 ### 6. `storage/` (存储模块)
 - 负责浏览器本地存储，将使用 IndexedDB / localStorage 持久化用户草稿和自定义模板。

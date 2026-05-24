@@ -1,7 +1,7 @@
 import { Layout } from 'antd';
 import { Header as EditorHeader } from './modules/ui/components/Header';
-import { LeftPanel } from './modules/ui/components/LeftPanel';
-import { RightPanel } from './modules/ui/components/RightPanel';
+import { MemoizedLeftPanel } from './modules/ui/components/LeftPanel';
+import { MemoizedRightPanel } from './modules/ui/components/RightPanel';
 import { CanvasArea } from './modules/canvas/components/CanvasArea';
 import { useEditorStore } from './modules/state/store';
 import './App.css';
@@ -29,13 +29,13 @@ function App() {
       </Header>
       <Layout>
         <Sider width={320} theme="light">
-          <LeftPanel />
+          <MemoizedLeftPanel />
         </Sider>
         <Content>
           <CanvasArea canvasSize={canvasSize} />
         </Content>
         <Sider width={300} theme="light" style={{ background: '#fff' }}>
-          <RightPanel />
+          <MemoizedRightPanel />
         </Sider>
       </Layout>
     </Layout>
