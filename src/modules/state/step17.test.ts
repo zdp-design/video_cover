@@ -216,7 +216,10 @@ describe('Step 17: Store - restoreFromDraft', () => {
     expect(state.canvas.backgroundColor).toBe('#ff0000');
     expect(state.theme).toEqual({ primary: '#ff0000' });
     expect(state.elements.length).toBe(1);
-    expect(state.elements[0].content).toBe('Restored');
+    expect(state.elements[0].type).toBe('text');
+    if (state.elements[0].type === 'text') {
+      expect(state.elements[0].content).toBe('Restored');
+    }
     expect(state.isDirty).toBe(false);
     expect(state.past).toEqual([]);
     expect(state.future).toEqual([]);

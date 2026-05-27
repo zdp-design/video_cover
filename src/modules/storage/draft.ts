@@ -1,11 +1,16 @@
 import type { CanvasConfig, EditorElement, ThemeColors } from '../state/types';
-import type { DraftSnapshot } from './draft';
 import { getSharedDB } from './db';
 
 const STORE_NAME = 'drafts';
 const DRAFT_KEY = 'current-draft';
 
-export type { DraftSnapshot };
+export interface DraftSnapshot {
+  canvas: CanvasConfig;
+  theme: ThemeColors;
+  elements: EditorElement[];
+  selection: string | null;
+  savedAt: string;
+}
 
 export async function saveDraft(snapshot: DraftSnapshot): Promise<boolean> {
   try {

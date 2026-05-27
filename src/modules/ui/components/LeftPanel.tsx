@@ -162,7 +162,8 @@ export const LeftPanel: React.FC = () => {
         okText: '保存草稿后加载',
         cancelText: '取消',
         onOk: () => {
-          saveDraftSnapshot().then(() => doLoad(templateId));
+          saveDraftSnapshot();
+          doLoad(templateId);
         },
         footer: (_, { OkBtn, CancelBtn }) => (
           <>

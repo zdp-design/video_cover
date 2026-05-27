@@ -444,7 +444,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }));
   },
 
-  applyTemplate: (template, isCustomTemplate = false) => {
+  applyTemplate: (template, _isCustomTemplate = false) => {
     set(() => ({
       canvas: { ...template.canvas },
       theme: { ...template.theme },

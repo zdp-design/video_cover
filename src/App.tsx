@@ -6,7 +6,6 @@ import { MemoizedRightPanel } from './modules/ui/components/RightPanel';
 import { CanvasArea } from './modules/canvas/components/CanvasArea';
 import { useEditorStore } from './modules/state/store';
 import {
-  loadLastUsedSize,
   saveLastUsedSize,
 } from './modules/storage/preferences';
 import './App.css';
