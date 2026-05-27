@@ -95,12 +95,13 @@ describe('Step 5 Text Elements tests', () => {
     expect(subTitle.content).toBe('副标题');
   });
 
-  it('单测：尝试写入非 MVP 字段（如描边/阴影）不会影响当前渲染结果', () => {
-    // 1. When external data is imported, advanced fields are completely discarded by schema validator
+  it('单测：高级文本字段（描边/阴影）在 schema 中被正确保留（Step 14 扩展）', () => {
+    // Step 14 added stroke/shadow as supported advanced text fields.
+    // Schema should now preserve them, not discard them.
     const rawExternalInput = {
       id: 'el_advanced_1',
       type: 'text',
-      content: 'MVP Text',
+      content: 'Advanced Text',
       strokeColor: '#ff0000',
       strokeWidth: 4,
       shadowColor: '#000000',
@@ -110,22 +111,16 @@ describe('Step 5 Text Elements tests', () => {
     const validated = validateAndFilterElement(rawExternalInput);
     expect(validated).not.toBeNull();
     if (validated) {
-      expect((validated as TextElement).content).toBe('MVP Text');
-      expect(
-        (validated as unknown as Record<string, unknown>).strokeColor,
-      ).toBeUndefined();
-      expect(
-        (validated as unknown as Record<string, unknown>).strokeWidth,
-      ).toBeUndefined();
-      expect(
-        (validated as unknown as Record<string, unknown>).shadowColor,
-      ).toBeUndefined();
-      expect(
-        (validated as unknown as Record<string, unknown>).shadowBlur,
-      ).toBeUndefined();
+      expect((validated as TextElement).content).toBe('Advanced Text');
+      // Step 14 advanced fields should now be preserved
+      expect((validated as TextElement).strokeColor).toBe('#ff0000');
+      expect((validated as TextElement).strokeWidth).toBe(4);
+      expect((validated as TextElement).shadowColor).toBe('#000000');
+      expect((validated as TextElement).shadowBlur).toBe(10);
     }
 
-    // 2. Even if manually injected (bypassing TS/validation), they don't break base field properties
+    // Manually injected advanced fields also work via store
+    useEditorStore.getState().resetStore();
     useEditorStore.getState().addElement({
       type: 'text',
       content: 'Manual Advanced Text',
@@ -136,7 +131,8 @@ describe('Step 5 Text Elements tests', () => {
     const elements = useEditorStore.getState().elements;
     const manualEl = elements[0] as TextElement;
     expect(manualEl.content).toBe('Manual Advanced Text');
-    // Ensure base properties required for standard MVP rendering are fully complete and functional
+    expect(manualEl.strokeColor).toBe('#ff0000');
+    expect(manualEl.strokeWidth).toBe(4);
     expect(manualEl.fontSize).toBe(40);
     expect(manualEl.fill).toBe('#000000');
   });

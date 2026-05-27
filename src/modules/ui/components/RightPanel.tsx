@@ -9,6 +9,8 @@ import {
   Button,
   Tooltip,
   Space,
+  Divider,
+  Tag,
 } from 'antd';
 import type { Color } from 'antd/es/color-picker';
 import {
@@ -16,18 +18,23 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   VerticalAlignBottomOutlined,
+  BgColorsOutlined,
 } from '@ant-design/icons';
 import { useEditorStore } from '../../state/store';
 import type {
   TextElement,
   StickerElement,
+  ShapeElement,
   BaseElement,
 } from '../../state/types';
+import { TEXT_STYLE_PRESETS, buildPresetUpdate } from '../../canvas/presets';
+import { getContrastRatio, getContrastLevel } from '../../themes/registry';
 
 export const RightPanel: React.FC = () => {
   const selection = useEditorStore((state) => state.selection);
   const elements = useEditorStore((state) => state.elements);
   const updateElement = useEditorStore((state) => state.updateElement);
+  const canvas = useEditorStore((state) => state.canvas);
 
   const selectedElement = elements.find((el) => el.id === selection);
 
@@ -120,6 +127,254 @@ export const RightPanel: React.FC = () => {
       updateElement(textEl.id, { fill: color.toHexString() });
     };
 
+    const handleStrokeColorChange = (color: Color | null) => {
+      if (color) {
+        updateElement(textEl.id, { strokeColor: color.toHexString() });
+      }
+    };
+
+    const handleStrokeWidthChange = (value: number | null) => {
+      if (value !== null) {
+        updateElement(textEl.id, { strokeWidth: value });
+      }
+    };
+
+    const handleShadowColorChange = (color: Color | null) => {
+      if (color) {
+        updateElement(textEl.id, { shadowColor: color.toHexString() });
+      }
+    };
+
+    const handleShadowBlurChange = (value: number | null) => {
+      if (value !== null) {
+        updateElement(textEl.id, { shadowBlur: value });
+      }
+    };
+
+    const handleShadowOffsetXChange = (value: number | null) => {
+      if (value !== null) {
+        updateElement(textEl.id, { shadowOffsetX: value });
+      }
+    };
+
+    const handleShadowOffsetYChange = (value: number | null) => {
+      if (value !== null) {
+        updateElement(textEl.id, { shadowOffsetY: value });
+      }
+    };
+
+    const handleLetterSpacingChange = (value: number | null) => {
+      if (value !== null) {
+        updateElement(textEl.id, { letterSpacing: value });
+      }
+    };
+
+    const handleApplyPreset = (presetId: string) => {
+      const preset = TEXT_STYLE_PRESETS.find((p) => p.id === presetId);
+      if (preset) {
+        const updates = buildPresetUpdate(preset);
+        updateElement(textEl.id, updates);
+      }
+    };
+
+    const renderStrokeControls = () => (
+      <div
+        style={{
+          border: '1px dashed #d9d9d9',
+          borderRadius: 6,
+          padding: 12,
+          background: '#fafafa',
+        }}
+      >
+        <div
+          style={{
+            marginBottom: 8,
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span>描边</span>
+          {!textEl.strokeColor && !textEl.strokeWidth && (
+            <Tag color="default" style={{ fontSize: 11 }}>
+              未启用
+            </Tag>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>
+              描边颜色
+            </div>
+            <ColorPicker
+              data-testid="text-stroke-color-input"
+              value={textEl.strokeColor || '#ffffff'}
+              onChange={handleStrokeColorChange}
+              showText
+              disabled={!textEl.strokeColor}
+              style={{ width: '100%' }}
+            />
+            <Button
+              data-testid="text-stroke-toggle"
+              type={textEl.strokeColor ? 'primary' : 'default'}
+              size="small"
+              style={{ marginTop: 4, width: '100%' }}
+              onClick={() => {
+                if (textEl.strokeColor) {
+                  updateElement(textEl.id, {
+                    strokeColor: undefined,
+                    strokeWidth: undefined,
+                  });
+                } else {
+                  updateElement(textEl.id, {
+                    strokeColor: '#ffffff',
+                    strokeWidth: 2,
+                  });
+                }
+              }}
+            >
+              {textEl.strokeColor ? '移除描边' : '启用描边'}
+            </Button>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>
+              描边宽度
+            </div>
+            <InputNumber
+              data-testid="text-stroke-width-input"
+              min={0.5}
+              max={20}
+              step={0.5}
+              value={textEl.strokeWidth ?? 2}
+              onChange={handleStrokeWidthChange}
+              disabled={!textEl.strokeColor}
+              style={{ width: '100%' }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+
+    const renderShadowControls = () => (
+      <div
+        style={{
+          border: '1px dashed #d9d9d9',
+          borderRadius: 6,
+          padding: 12,
+          background: '#fafafa',
+        }}
+      >
+        <div
+          style={{
+            marginBottom: 8,
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span>阴影</span>
+          {!textEl.shadowColor && (
+            <Tag color="default" style={{ fontSize: 11 }}>
+              未启用
+            </Tag>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>
+              阴影颜色
+            </div>
+            <ColorPicker
+              data-testid="text-shadow-color-input"
+              value={textEl.shadowColor || '#000000'}
+              onChange={handleShadowColorChange}
+              showText
+              disabled={!textEl.shadowColor}
+              style={{ width: '100%' }}
+            />
+            <Button
+              data-testid="text-shadow-toggle"
+              type={textEl.shadowColor ? 'primary' : 'default'}
+              size="small"
+              style={{ marginTop: 4, width: '100%' }}
+              onClick={() => {
+                if (textEl.shadowColor) {
+                  updateElement(textEl.id, {
+                    shadowColor: undefined,
+                    shadowBlur: undefined,
+                    shadowOffsetX: undefined,
+                    shadowOffsetY: undefined,
+                  });
+                } else {
+                  updateElement(textEl.id, {
+                    shadowColor: 'rgba(0,0,0,0.5)',
+                    shadowBlur: 4,
+                    shadowOffsetX: 2,
+                    shadowOffsetY: 2,
+                  });
+                }
+              }}
+            >
+              {textEl.shadowColor ? '移除阴影' : '启用阴影'}
+            </Button>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>
+              模糊
+            </div>
+            <InputNumber
+              data-testid="text-shadow-blur-input"
+              min={0}
+              max={30}
+              value={textEl.shadowBlur ?? 4}
+              onChange={handleShadowBlurChange}
+              disabled={!textEl.shadowColor}
+              style={{ width: '100%', marginBottom: 8 }}
+            />
+            <div style={{ display: 'flex', gap: 4 }}>
+              <InputNumber
+                data-testid="text-shadow-offset-x-input"
+                placeholder="X"
+                min={-20}
+                max={20}
+                value={textEl.shadowOffsetX ?? 2}
+                onChange={handleShadowOffsetXChange}
+                disabled={!textEl.shadowColor}
+                style={{ width: '50%' }}
+              />
+              <InputNumber
+                data-testid="text-shadow-offset-y-input"
+                placeholder="Y"
+                min={-20}
+                max={20}
+                value={textEl.shadowOffsetY ?? 2}
+                onChange={handleShadowOffsetYChange}
+                disabled={!textEl.shadowColor}
+                style={{ width: '50%' }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    const renderLetterSpacingControl = () => (
+      <div>
+        <div style={{ marginBottom: 8 }}>字间距 (px)</div>
+        <InputNumber
+          data-testid="text-letter-spacing-input"
+          min={0}
+          max={50}
+          value={textEl.letterSpacing ?? 0}
+          onChange={handleLetterSpacingChange}
+          style={{ width: '100%' }}
+          placeholder="0"
+        />
+      </div>
+    );
+
     return (
       <div
         data-testid="active-element-panel"
@@ -129,9 +384,46 @@ export const RightPanel: React.FC = () => {
           display: 'flex',
           flexDirection: 'column',
           gap: 16,
+          overflowY: 'auto',
         }}
       >
         <h3 style={{ margin: '0 0 10px 0' }}>文本属性编辑</h3>
+
+        {/* Style Presets */}
+        <div>
+          <div
+            style={{
+              marginBottom: 8,
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <BgColorsOutlined />
+            <span>样式预设</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {TEXT_STYLE_PRESETS.map((preset) => (
+              <Button
+                key={preset.id}
+                data-testid={`preset-${preset.id}`}
+                size="small"
+                onClick={() => handleApplyPreset(preset.id)}
+              >
+                {preset.name}
+              </Button>
+            ))}
+          </div>
+          {TEXT_STYLE_PRESETS.length > 0 && (
+            <div style={{ marginTop: 4, fontSize: 11, color: '#999' }}>
+              {TEXT_STYLE_PRESETS[0].description} ·{' '}
+              {TEXT_STYLE_PRESETS[1].description} · ...
+            </div>
+          )}
+        </div>
+
+        <Divider style={{ margin: '8px 0' }} />
 
         <div>
           <div style={{ marginBottom: 8 }}>文本内容</div>
@@ -208,13 +500,46 @@ export const RightPanel: React.FC = () => {
 
         <div>
           <div style={{ marginBottom: 8 }}>文本颜色</div>
-          <ColorPicker
-            data-testid="text-color-input"
-            value={textEl.fill}
-            onChange={handleColorChange}
-            showText
-          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <ColorPicker
+              data-testid="text-color-input"
+              value={textEl.fill}
+              onChange={handleColorChange}
+              showText
+            />
+            {(() => {
+              const ratio = getContrastRatio(
+                textEl.fill,
+                canvas.backgroundColor,
+              );
+              const level = getContrastLevel(ratio);
+              return (
+                <Tooltip
+                  title={`对比度 ${ratio.toFixed(1)}:1，WCAG ${level.label}`}
+                >
+                  <Tag
+                    data-testid="text-contrast-badge"
+                    style={{
+                      background: level.color,
+                      color: '#fff',
+                      border: 'none',
+                    }}
+                  >
+                    {level.label}
+                  </Tag>
+                </Tooltip>
+              );
+            })()}
+          </div>
         </div>
+
+        <Divider style={{ margin: '8px 0' }} />
+
+        {renderStrokeControls()}
+        {renderShadowControls()}
+        {renderLetterSpacingControl()}
+
+        <Divider style={{ margin: '8px 0' }} />
 
         {renderLayerControls(textEl.id)}
       </div>
@@ -249,6 +574,121 @@ export const RightPanel: React.FC = () => {
         </div>
 
         {renderLayerControls(stickerEl.id)}
+      </div>
+    );
+  }
+
+  if (selectedElement.type === 'shape') {
+    const shapeEl = selectedElement as ShapeElement;
+
+    const handleFillChange = (color: Color | null) => {
+      if (color) {
+        updateElement(shapeEl.id, { fill: color.toHexString() });
+      }
+    };
+
+    const handleStrokeChange = (color: Color | null) => {
+      if (color) {
+        updateElement(shapeEl.id, { stroke: color.toHexString() });
+      }
+    };
+
+    const handleStrokeWidthChange = (value: number | null) => {
+      if (value !== null) {
+        updateElement(shapeEl.id, { strokeWidth: value });
+      }
+    };
+
+    const handleCornerRadiusChange = (value: number | null) => {
+      if (value !== null) {
+        updateElement(shapeEl.id, { cornerRadius: value });
+      }
+    };
+
+    const handleShapeTypeChange = (
+      shapeType: 'rect' | 'roundedRect' | 'circle',
+    ) => {
+      updateElement(shapeEl.id, { shapeType });
+    };
+
+    return (
+      <div
+        data-testid="active-element-panel"
+        style={{
+          padding: 20,
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+          overflowY: 'auto',
+        }}
+      >
+        <h3 style={{ margin: '0 0 10px 0' }}>图形属性编辑</h3>
+
+        <div>
+          <div style={{ marginBottom: 8 }}>图形类型</div>
+          <Select
+            data-testid="shape-type-input"
+            value={shapeEl.shapeType}
+            onChange={handleShapeTypeChange}
+            style={{ width: '100%' }}
+            options={[
+              { label: '矩形', value: 'rect' },
+              { label: '圆角矩形', value: 'roundedRect' },
+              { label: '圆形', value: 'circle' },
+            ]}
+          />
+        </div>
+
+        <div>
+          <div style={{ marginBottom: 8 }}>填充颜色</div>
+          <ColorPicker
+            data-testid="shape-fill-input"
+            value={shapeEl.fill}
+            onChange={handleFillChange}
+            showText
+          />
+        </div>
+
+        <div>
+          <div style={{ marginBottom: 8 }}>边框颜色</div>
+          <ColorPicker
+            data-testid="shape-stroke-input"
+            value={shapeEl.stroke}
+            onChange={handleStrokeChange}
+            showText
+          />
+        </div>
+
+        <div>
+          <div style={{ marginBottom: 8 }}>边框宽度 (px)</div>
+          <InputNumber
+            data-testid="shape-stroke-width-input"
+            min={0}
+            max={20}
+            value={shapeEl.strokeWidth}
+            onChange={handleStrokeWidthChange}
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        {shapeEl.shapeType === 'roundedRect' && (
+          <div>
+            <div style={{ marginBottom: 8 }}>圆角半径 (px)</div>
+            <InputNumber
+              data-testid="shape-corner-radius-input"
+              min={0}
+              max={200}
+              value={shapeEl.cornerRadius}
+              onChange={handleCornerRadiusChange}
+              style={{ width: '100%' }}
+            />
+          </div>
+        )}
+
+        <Divider style={{ margin: '8px 0' }} />
+
+        {renderLayerControls(shapeEl.id)}
       </div>
     );
   }

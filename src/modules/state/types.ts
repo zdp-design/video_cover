@@ -1,4 +1,4 @@
-export type ElementType = 'text' | 'sticker';
+export type ElementType = 'text' | 'sticker' | 'shape';
 
 export interface BaseElement {
   id: string;
@@ -28,7 +28,7 @@ export interface TextElement extends BaseElement {
   textAlign: 'left' | 'center' | 'right';
   fill: string;
 
-  // Advanced styles are optional in MVP
+  // Advanced styles (Step 14)
   strokeColor?: string;
   strokeWidth?: number;
   shadowColor?: string;
@@ -45,7 +45,18 @@ export interface StickerElement extends BaseElement {
   assetSource: string;
 }
 
-export type EditorElement = TextElement | StickerElement;
+export type ShapeSubtype = 'rect' | 'roundedRect' | 'circle';
+
+export interface ShapeElement extends BaseElement {
+  type: 'shape';
+  shapeType: ShapeSubtype;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  cornerRadius: number; // used for roundedRect, ignored for rect/circle
+}
+
+export type EditorElement = TextElement | StickerElement | ShapeElement;
 
 export interface CanvasConfig {
   width: number;

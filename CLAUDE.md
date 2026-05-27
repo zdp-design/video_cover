@@ -79,6 +79,13 @@ npm install konva react-konva zustand antd idb file-saver
 npm install -D vitest @testing-library/react @playwright/test eslint prettier
 ```
 
+## 语言规范
+
+- 所有对话和文档都使用中文
+- 注释使用中文
+- 错误提示使用中文
+- 文档使用中文Markdown格式
+
 ## Design Principles
 
 - Offline-first: all core editing and export work without network

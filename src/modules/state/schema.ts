@@ -17,7 +17,7 @@ export function validateAndFilterElement(raw: unknown): EditorElement | null {
     console.warn('Invalid element input: missing or invalid id', raw);
     return null;
   }
-  if (obj.type !== 'text' && obj.type !== 'sticker') {
+  if (obj.type !== 'text' && obj.type !== 'sticker' && obj.type !== 'shape') {
     console.warn(`Invalid element input: unsupported type "${obj.type}"`, raw);
     return null;
   }
@@ -73,8 +73,17 @@ export function validateAndFilterElement(raw: unknown): EditorElement | null {
           'lineHeight',
           'textAlign',
           'fill',
+          'strokeColor',
+          'strokeWidth',
+          'shadowColor',
+          'shadowBlur',
+          'shadowOffsetX',
+          'shadowOffsetY',
+          'letterSpacing',
         ]
-      : ['assetId', 'assetType', 'assetSource'];
+      : obj.type === 'sticker'
+        ? ['assetId', 'assetType', 'assetSource']
+        : ['shapeType', 'fill', 'stroke', 'strokeWidth', 'cornerRadius'];
 
   const allAllowedFields = [...baseFields, ...allowedSpecificFields];
 
@@ -108,6 +117,27 @@ export function validateAndFilterElement(raw: unknown): EditorElement | null {
         ? obj.textAlign
         : 'left';
     filtered.fill = typeof obj.fill === 'string' ? obj.fill : '#000000';
+    if (typeof obj.strokeColor === 'string') {
+      filtered.strokeColor = obj.strokeColor;
+    }
+    if (typeof obj.strokeWidth === 'number') {
+      filtered.strokeWidth = obj.strokeWidth;
+    }
+    if (typeof obj.shadowColor === 'string') {
+      filtered.shadowColor = obj.shadowColor;
+    }
+    if (typeof obj.shadowBlur === 'number') {
+      filtered.shadowBlur = obj.shadowBlur;
+    }
+    if (typeof obj.shadowOffsetX === 'number') {
+      filtered.shadowOffsetX = obj.shadowOffsetX;
+    }
+    if (typeof obj.shadowOffsetY === 'number') {
+      filtered.shadowOffsetY = obj.shadowOffsetY;
+    }
+    if (typeof obj.letterSpacing === 'number') {
+      filtered.letterSpacing = obj.letterSpacing;
+    }
     return filtered as unknown as EditorElement;
   } else if (obj.type === 'sticker') {
     filtered.assetId = typeof obj.assetId === 'string' ? obj.assetId : '';
@@ -117,6 +147,20 @@ export function validateAndFilterElement(raw: unknown): EditorElement | null {
         : 'svg';
     filtered.assetSource =
       typeof obj.assetSource === 'string' ? obj.assetSource : '';
+    return filtered as unknown as EditorElement;
+  } else if (obj.type === 'shape') {
+    filtered.shapeType =
+      obj.shapeType === 'rect' ||
+      obj.shapeType === 'roundedRect' ||
+      obj.shapeType === 'circle'
+        ? obj.shapeType
+        : 'rect';
+    filtered.fill = typeof obj.fill === 'string' ? obj.fill : '#e8e8e8';
+    filtered.stroke = typeof obj.stroke === 'string' ? obj.stroke : '#d9d9d9';
+    filtered.strokeWidth =
+      typeof obj.strokeWidth === 'number' ? obj.strokeWidth : 1;
+    filtered.cornerRadius =
+      typeof obj.cornerRadius === 'number' ? obj.cornerRadius : 0;
     return filtered as unknown as EditorElement;
   }
 

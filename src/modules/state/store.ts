@@ -5,17 +5,26 @@ import type {
   ThemeColors,
   TextElement,
   StickerElement,
+  ShapeElement,
   BaseElement,
 } from './types';
 import { validateAndFilterElement } from './schema';
 import type { ValidTemplate } from '../templates/schema';
-import { saveDraft } from '../storage/draft';
+import { saveDraft, loadDraft } from '../storage/draft';
+import {
+  saveCustomTemplate,
+  loadCustomTemplates,
+  deleteCustomTemplate,
+} from '../storage/template';
+import { THEME_PRESETS, buildColorReplaceMap } from '../themes/registry';
 
 export type CreateElementInput =
   | (Partial<Omit<TextElement, keyof BaseElement>> &
       Partial<BaseElement> & { type: 'text' })
   | (Partial<Omit<StickerElement, keyof BaseElement>> &
-      Partial<BaseElement> & { type: 'sticker' });
+      Partial<BaseElement> & { type: 'sticker' })
+  | (Partial<Omit<ShapeElement, keyof BaseElement>> &
+      Partial<BaseElement> & { type: 'shape' });
 
 export interface HistoryState {
   canvas: CanvasConfig;
@@ -60,8 +69,14 @@ export interface EditorStore {
 
   // Import
   importElements: (elements: unknown[]) => void;
-  applyTemplate: (template: ValidTemplate) => void;
+  applyTemplate: (template: ValidTemplate, isCustomTemplate?: boolean) => void;
+  applyTheme: (themeId: string) => void;
   saveDraftSnapshot: () => void;
+  autoSave: () => void;
+  restoreFromDraft: () => Promise<boolean>;
+  saveAsCustomTemplate: (name: string) => Promise<boolean>;
+  loadCustomTemplates: () => Promise<unknown[]>;
+  deleteCustomTemplate: (id: string) => Promise<boolean>;
   resetStore: () => void;
 }
 
@@ -99,6 +114,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       future: [],
       isDirty: true,
     }));
+    get().autoSave();
   },
 
   setCanvasBackgroundColor: (backgroundColor) => {
@@ -109,6 +125,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       future: [],
       isDirty: true,
     }));
+    get().autoSave();
   },
 
   setTheme: (theme) => {
@@ -119,6 +136,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       future: [],
       isDirty: true,
     }));
+    get().autoSave();
   },
 
   addElement: (input) => {
@@ -128,11 +146,21 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const baseDefaults: BaseElement = {
       id: input.id || crypto.randomUUID(),
       type: input.type,
-      name: input.name || (input.type === 'text' ? '文本元素' : '贴纸元素'),
+      name:
+        input.name ||
+        (input.type === 'text'
+          ? '文本元素'
+          : input.type === 'sticker'
+            ? '贴纸元素'
+            : '图形元素'),
       x: input.x ?? 0,
       y: input.y ?? 0,
-      width: input.width ?? (input.type === 'text' ? 200 : 100),
-      height: input.height ?? (input.type === 'text' ? 50 : 100),
+      width:
+        input.width ??
+        (input.type === 'text' ? 200 : input.type === 'sticker' ? 100 : 150),
+      height:
+        input.height ??
+        (input.type === 'text' ? 50 : input.type === 'sticker' ? 100 : 150),
       rotation: input.rotation ?? 0,
       scaleX: input.scaleX ?? 1,
       scaleY: input.scaleY ?? 1,
@@ -161,8 +189,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         lineHeight: textInput.lineHeight || 1.2,
         textAlign: textInput.textAlign || 'left',
         fill: textInput.fill || '#000000',
+        // Step 14 advanced styles
+        strokeColor: textInput.strokeColor,
+        strokeWidth: textInput.strokeWidth,
+        shadowColor: textInput.shadowColor,
+        shadowBlur: textInput.shadowBlur,
+        shadowOffsetX: textInput.shadowOffsetX,
+        shadowOffsetY: textInput.shadowOffsetY,
+        letterSpacing: textInput.letterSpacing,
       };
-    } else {
+    } else if (input.type === 'sticker') {
       const stickerInput = input as Omit<StickerElement, keyof BaseElement> &
         Partial<BaseElement>;
       fullElement = {
@@ -172,15 +208,28 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         assetType: stickerInput.assetType || 'svg',
         assetSource: stickerInput.assetSource || '',
       };
+    } else {
+      const shapeInput = input as Omit<ShapeElement, keyof BaseElement> &
+        Partial<BaseElement>;
+      fullElement = {
+        ...baseDefaults,
+        type: 'shape',
+        shapeType: shapeInput.shapeType || 'rect',
+        fill: shapeInput.fill || '#e8e8e8',
+        stroke: shapeInput.stroke || '#d9d9d9',
+        strokeWidth: shapeInput.strokeWidth ?? 1,
+        cornerRadius: shapeInput.cornerRadius ?? 0,
+      };
     }
 
     set((state) => ({
       elements: [...state.elements, fullElement],
-      selection: fullElement.id, // Auto-select on creation
+      selection: fullElement.id,
       past: [...state.past, snap].slice(-MAX_HISTORY),
       future: [],
       isDirty: true,
     }));
+    get().autoSave();
   },
 
   removeElement: (id) => {
@@ -190,12 +239,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       const isSelected = state.selection === id;
       return {
         elements: filteredElements,
-        selection: isSelected ? null : state.selection, // Correct rollback
+        selection: isSelected ? null : state.selection,
         past: [...state.past, snap].slice(-MAX_HISTORY),
         future: [],
         isDirty: true,
       };
     });
+    get().autoSave();
   },
 
   updateElement: (id, updates, skipHistory = false) => {
@@ -252,6 +302,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       future: [],
       isDirty: true,
     }));
+    get().autoSave();
   },
 
   bringForward: (id) => {
@@ -276,6 +327,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       future: [],
       isDirty: true,
     }));
+    get().autoSave();
   },
 
   sendBackward: (id) => {
@@ -300,6 +352,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       future: [],
       isDirty: true,
     }));
+    get().autoSave();
   },
 
   sendToBack: (id) => {
@@ -323,6 +376,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       future: [],
       isDirty: true,
     }));
+    get().autoSave();
   },
 
   undo: () => {
@@ -390,7 +444,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }));
   },
 
-  applyTemplate: (template) => {
+  applyTemplate: (template, isCustomTemplate = false) => {
     set(() => ({
       canvas: { ...template.canvas },
       theme: { ...template.theme },
@@ -401,6 +455,68 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       isDirty: false,
       currentTemplateName: template.meta.name,
     }));
+  },
+
+  applyTheme: (themeId: string) => {
+    const preset = THEME_PRESETS.find((t) => t.id === themeId);
+    if (!preset) return;
+
+    const snap = createHistorySnapshot(get());
+    const { theme: oldTheme, elements: oldElements, canvas: oldCanvas } = get();
+    const newTheme = {
+      primary: preset.colors.primary,
+      accent: preset.colors.accent,
+      text: preset.colors.text,
+      background: preset.colors.background,
+    };
+
+    const colorMap = buildColorReplaceMap(oldTheme, newTheme);
+    if (colorMap.size === 0) return; // No change
+
+    const newElements: EditorElement[] = oldElements.map((el) => {
+      if (el.type === 'text') {
+        const t = el as TextElement;
+        let changed = false;
+        const replacements: Partial<TextElement> = {};
+        if (colorMap.has(t.fill)) {
+          replacements.fill = colorMap.get(t.fill)!;
+          changed = true;
+        }
+        if (t.strokeColor && colorMap.has(t.strokeColor)) {
+          replacements.strokeColor = colorMap.get(t.strokeColor)!;
+          changed = true;
+        }
+        return changed ? ({ ...el, ...replacements } as EditorElement) : el;
+      } else if (el.type === 'shape') {
+        const s = el as ShapeElement;
+        let changed = false;
+        const replacements: Partial<ShapeElement> = {};
+        if (colorMap.has(s.fill)) {
+          replacements.fill = colorMap.get(s.fill)!;
+          changed = true;
+        }
+        if (colorMap.has(s.stroke)) {
+          replacements.stroke = colorMap.get(s.stroke)!;
+          changed = true;
+        }
+        return changed ? ({ ...el, ...replacements } as EditorElement) : el;
+      }
+      return el;
+    });
+
+    const newBg = colorMap.has(oldCanvas.backgroundColor)
+      ? colorMap.get(oldCanvas.backgroundColor)!
+      : oldCanvas.backgroundColor;
+
+    set(() => ({
+      elements: newElements,
+      theme: newTheme,
+      canvas: { ...oldCanvas, backgroundColor: newBg },
+      past: [...get().past, snap].slice(-MAX_HISTORY),
+      future: [],
+      isDirty: true,
+    }));
+    get().autoSave();
   },
 
   saveDraftSnapshot: () => {
@@ -417,6 +533,66 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       }
     });
     set(() => ({ isDirty: false }));
+  },
+
+  // Auto-save: persists to IndexedDB for crash recovery WITHOUT resetting isDirty.
+  // isDirty tracks explicit saves; auto-save is invisible to the dirty flag.
+  autoSave: () => {
+    const state = get();
+    saveDraft({
+      canvas: state.canvas,
+      theme: state.theme,
+      elements: state.elements,
+      selection: state.selection,
+      savedAt: new Date().toISOString(),
+    }).then((saved) => {
+      if (!saved) {
+        console.warn('Failed to auto-save draft. IndexedDB may be unavailable.');
+      }
+    });
+  },
+
+  restoreFromDraft: async () => {
+    const draft = await loadDraft();
+    if (!draft) return false;
+    set(() => ({
+      canvas: draft.canvas,
+      theme: draft.theme,
+      elements: draft.elements,
+      selection: draft.selection,
+      isDirty: false,
+      currentTemplateName: null,
+      past: [],
+      future: [],
+    }));
+    return true;
+  },
+
+  saveAsCustomTemplate: async (name: string) => {
+    const state = get();
+    const template: ValidTemplate = {
+      version: 1,
+      meta: {
+        id: `custom-${crypto.randomUUID()}`,
+        name,
+        category: 'ecommerce',
+        thumbnail: '',
+        author: 'user',
+        updatedAt: new Date().toISOString(),
+      },
+      canvas: { ...state.canvas },
+      theme: { ...state.theme },
+      elements: state.elements.map((el) => ({ ...el })),
+    };
+    return await saveCustomTemplate(name, template);
+  },
+
+  loadCustomTemplates: async () => {
+    return await loadCustomTemplates();
+  },
+
+  deleteCustomTemplate: async (id: string) => {
+    return await deleteCustomTemplate(id);
   },
 
   resetStore: () => {

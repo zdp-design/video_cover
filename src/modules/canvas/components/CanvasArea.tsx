@@ -1,15 +1,39 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useEditorStore } from '../../state/store';
-import type { TextElement, StickerElement } from '../../state/types';
+import type {
+  TextElement,
+  StickerElement,
+  ShapeElement,
+} from '../../state/types';
 import { sanitizeSvg } from '../../../utils/sanitize';
 
 interface CanvasAreaProps {
   canvasSize: { width: number; height: number };
 }
 
+const SNAP_THRESHOLD = 8; // px in canvas logical coords
+
+interface SnapGuideLines {
+  vertical: number | null; // x position of vertical guide
+  horizontal: number | null; // y position of horizontal guide
+  edgeLeft: boolean;
+  edgeRight: boolean;
+  edgeTop: boolean;
+  edgeBottom: boolean;
+}
+
 const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [isDragging, setIsDragging] = useState(false);
+  const [snapGuides, setSnapGuides] = useState<SnapGuideLines>({
+    vertical: null,
+    horizontal: null,
+    edgeLeft: false,
+    edgeRight: false,
+    edgeTop: false,
+    edgeBottom: false,
+  });
   const elements = useEditorStore((state) => state.elements);
   const selection = useEditorStore((state) => state.selection);
   const selectElement = useEditorStore((state) => state.selectElement);
@@ -18,13 +42,13 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
     const updateScale = () => {
       if (!containerRef.current) return;
       const container = containerRef.current;
-      const padding = 40; // 20px padding on each side
+      const padding = 40;
       const availableWidth = container.clientWidth - padding * 2;
       const availableHeight = container.clientHeight - padding * 2;
 
       const scaleX = availableWidth / canvasSize.width;
       const scaleY = availableHeight / canvasSize.height;
-      const newScale = Math.min(scaleX, scaleY, 1); // Don't scale up beyond 1
+      const newScale = Math.min(scaleX, scaleY, 1);
       setScale(newScale);
     };
 
@@ -42,7 +66,70 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
     }
   };
 
-  // Apply a transform update to an element, returning the updates object
+  const computeSnap = useCallback(
+    (
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+    ): { x: number; y: number; guides: SnapGuideLines } => {
+      const { width: cw, height: ch } = canvasSize;
+      const centerX = cw / 2;
+      const centerY = ch / 2;
+
+      const elLeft = x;
+      const elRight = x + width;
+      const elTop = y;
+      const elBottom = y + height;
+      const elCenterX = x + width / 2;
+      const elCenterY = y + height / 2;
+
+      let snappedX = x;
+      let snappedY = y;
+      const guides: SnapGuideLines = {
+        vertical: null,
+        horizontal: null,
+        edgeLeft: false,
+        edgeRight: false,
+        edgeTop: false,
+        edgeBottom: false,
+      };
+
+      // Threshold scales with element size (5% of smaller dimension, min 8px)
+      const threshold = Math.max(
+        SNAP_THRESHOLD,
+        Math.min(width, height) * 0.05,
+      );
+
+      // Horizontal snap (vertical guide lines)
+      if (Math.abs(elCenterX - centerX) < threshold) {
+        snappedX = centerX - width / 2;
+        guides.vertical = centerX;
+      } else if (Math.abs(elLeft) < threshold) {
+        snappedX = 0;
+        guides.vertical = 0;
+      } else if (Math.abs(elRight - cw) < threshold) {
+        snappedX = cw - width;
+        guides.vertical = cw;
+      }
+
+      // Vertical snap (horizontal guide lines)
+      if (Math.abs(elCenterY - centerY) < threshold) {
+        snappedY = centerY - height / 2;
+        guides.horizontal = centerY;
+      } else if (Math.abs(elTop) < threshold) {
+        snappedY = 0;
+        guides.horizontal = 0;
+      } else if (Math.abs(elBottom - ch) < threshold) {
+        snappedY = ch - height;
+        guides.horizontal = ch;
+      }
+
+      return { x: snappedX, y: snappedY, guides };
+    },
+    [canvasSize],
+  );
+
   const computeTransformUpdate = (
     action: 'drag' | 'resize' | 'rotate',
     clientX: number,
@@ -58,7 +145,13 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
     cy: number,
     startDist: number,
     startAngle: number,
-  ): Partial<{ x: number; y: number; scaleX: number; scaleY: number; rotation: number }> => {
+  ): Partial<{
+    x: number;
+    y: number;
+    scaleX: number;
+    scaleY: number;
+    rotation: number;
+  }> => {
     if (action === 'drag') {
       const dx = (clientX - startX) / scale;
       const dy = (clientY - startY) / scale;
@@ -107,6 +200,72 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
           flexShrink: 0,
         }}
       >
+        {/* Safe Area & Alignment Guide Lines — always visible */}
+        <div
+          data-testid="safe-area-guides"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            overflow: 'hidden',
+            zIndex: 0,
+          }}
+        >
+          {/* Center vertical line */}
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: 0,
+              width: 0,
+              height: '100%',
+              borderLeft: '1px dashed rgba(25, 143, 255, 0.25)',
+              transform: 'translateX(-50%)',
+            }}
+          />
+          {/* Center horizontal line */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: 0,
+              width: '100%',
+              height: 0,
+              borderTop: '1px dashed rgba(25, 143, 255, 0.25)',
+              transform: 'translateY(-50%)',
+            }}
+          />
+          {/* Edge lines — only show when dragging and element is near */}
+          {isDragging && snapGuides.vertical !== null && (
+            <div
+              data-testid="snap-guide-vertical"
+              style={{
+                position: 'absolute',
+                left: snapGuides.vertical,
+                top: 0,
+                width: 0,
+                height: '100%',
+                borderLeft: '1px solid rgba(25, 143, 255, 0.7)',
+                transform: 'translateX(-50%)',
+              }}
+            />
+          )}
+          {isDragging && snapGuides.horizontal !== null && (
+            <div
+              data-testid="snap-guide-horizontal"
+              style={{
+                position: 'absolute',
+                top: snapGuides.horizontal,
+                left: 0,
+                width: '100%',
+                height: 0,
+                borderTop: '1px solid rgba(25, 143, 255, 0.7)',
+                transform: 'translateY(-50%)',
+              }}
+            />
+          )}
+        </div>
+
         {elements.map((el) => {
           const isSelected = selection === el.id;
 
@@ -140,47 +299,93 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
             );
             const startAngle = Math.atan2(startY - cy, startX - cx);
 
+            if (action === 'drag') {
+              setIsDragging(true);
+              setSnapGuides({
+                vertical: null,
+                horizontal: null,
+                edgeLeft: false,
+                edgeRight: false,
+                edgeTop: false,
+                edgeBottom: false,
+              });
+            }
+
             const handleMouseMove = (moveEvent: MouseEvent) => {
-              const updates = computeTransformUpdate(
-                action,
-                moveEvent.clientX,
-                moveEvent.clientY,
-                startX,
-                startY,
-                startElX,
-                startElY,
-                startScaleX,
-                startScaleY,
-                startRotation,
-                cx,
-                cy,
-                startDist,
-                startAngle,
-              );
-              useEditorStore.getState().updateElement(el.id, updates, true);
+              if (action === 'drag') {
+                const dx = (moveEvent.clientX - startX) / scale;
+                const dy = (moveEvent.clientY - startY) / scale;
+                const rawX = startElX + dx;
+                const rawY = startElY + dy;
+                const {
+                  x: snappedX,
+                  y: snappedY,
+                  guides,
+                } = computeSnap(rawX, rawY, el.width, el.height);
+                setSnapGuides(guides);
+                useEditorStore
+                  .getState()
+                  .updateElement(el.id, { x: snappedX, y: snappedY }, true);
+              } else {
+                const updates = computeTransformUpdate(
+                  action,
+                  moveEvent.clientX,
+                  moveEvent.clientY,
+                  startX,
+                  startY,
+                  startElX,
+                  startElY,
+                  startScaleX,
+                  startScaleY,
+                  startRotation,
+                  cx,
+                  cy,
+                  startDist,
+                  startAngle,
+                );
+                useEditorStore.getState().updateElement(el.id, updates, true);
+              }
             };
 
             const handleMouseUp = (upEvent: MouseEvent) => {
               window.removeEventListener('mousemove', handleMouseMove);
               window.removeEventListener('mouseup', handleMouseUp);
 
-              const updates = computeTransformUpdate(
-                action,
-                upEvent.clientX,
-                upEvent.clientY,
-                startX,
-                startY,
-                startElX,
-                startElY,
-                startScaleX,
-                startScaleY,
-                startRotation,
-                cx,
-                cy,
-                startDist,
-                startAngle,
-              );
-              useEditorStore.getState().updateElement(el.id, updates, false);
+              if (action === 'drag') {
+                setIsDragging(false);
+                setSnapGuides({
+                  vertical: null,
+                  horizontal: null,
+                  edgeLeft: false,
+                  edgeRight: false,
+                  edgeTop: false,
+                  edgeBottom: false,
+                });
+              }
+
+              if (action !== 'drag') {
+                const updates = computeTransformUpdate(
+                  action,
+                  upEvent.clientX,
+                  upEvent.clientY,
+                  startX,
+                  startY,
+                  startElX,
+                  startElY,
+                  startScaleX,
+                  startScaleY,
+                  startRotation,
+                  cx,
+                  cy,
+                  startDist,
+                  startAngle,
+                );
+                useEditorStore.getState().updateElement(el.id, updates, false);
+              } else {
+                // Final snap-aware position already written via transient updates;
+                // Write a non-transient snapshot to record the final position in history
+                useEditorStore.getState().updateElement(el.id, {}, false);
+              }
             };
 
             window.addEventListener('mousemove', handleMouseMove);
@@ -190,6 +395,19 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
           const renderInnerContent = () => {
             if (el.type === 'text') {
               const textEl = el as TextElement;
+
+              // Build text-shadow from shadow fields
+              const textShadow =
+                textEl.shadowColor && textEl.shadowBlur !== undefined
+                  ? `${textEl.shadowOffsetX ?? 0}px ${textEl.shadowOffsetY ?? 0}px ${textEl.shadowBlur}px ${textEl.shadowColor}`
+                  : undefined;
+
+              // Build -webkit-text-stroke from stroke fields
+              const textStroke =
+                textEl.strokeColor && textEl.strokeWidth !== undefined
+                  ? `${textEl.strokeWidth}px ${textEl.strokeColor}`
+                  : undefined;
+
               return (
                 <div
                   data-testid={`canvas-text-inner-${el.id}`}
@@ -203,6 +421,13 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
                     width: '100%',
                     wordBreak: 'break-word',
                     userSelect: 'none',
+                    // Advanced text styles
+                    letterSpacing:
+                      textEl.letterSpacing !== undefined
+                        ? `${textEl.letterSpacing}px`
+                        : undefined,
+                    textShadow,
+                    WebkitTextStroke: textStroke,
                   }}
                 >
                   {textEl.content}
@@ -223,6 +448,27 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
                   }}
                   dangerouslySetInnerHTML={{
                     __html: sanitizeSvg(stickerEl.assetSource),
+                  }}
+                />
+              );
+            } else if (el.type === 'shape') {
+              const shapeEl = el as ShapeElement;
+              return (
+                <div
+                  data-testid={`canvas-shape-inner-${el.id}`}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    userSelect: 'none',
+                    borderRadius:
+                      shapeEl.shapeType === 'circle'
+                        ? '50%'
+                        : shapeEl.shapeType === 'roundedRect'
+                          ? `${shapeEl.cornerRadius}px`
+                          : 0,
+                    backgroundColor: shapeEl.fill,
+                    border: `${shapeEl.strokeWidth}px solid ${shapeEl.stroke}`,
+                    boxSizing: 'border-box',
                   }}
                 />
               );

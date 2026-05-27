@@ -336,3 +336,183 @@
 **遗留风险与下一步准备：**
 - MVP 功能闭环完整，四区布局、文本/贴纸编辑、层级调整、撤销重做、模板套用、PNG/JPEG 导出全部通过端到端验证，达到可用发布状态。
 - 下一步（Step 13）将进入 **"安全区与吸附对齐线"**。按用户指令，在 Step 12 验证通过前不开始 Step 13。
+
+---
+
+### Step 13：安全区与吸附对齐线（已完成）
+
+**完成内容：**
+- **安全区可视化引导线**（`src/modules/canvas/components/CanvasArea.tsx`）：
+  - 画布板内始终显示两条中心线（垂直和水平），使用 `1px dashed rgba(25, 143, 255, 0.25)` 样式，视觉柔和不抢眼。
+  - `pointerEvents: 'none'` 确保引导线不干扰任何交互，且不会出现在导出结果中。
+- **拖拽吸附对齐系统**（`src/modules/canvas/components/CanvasArea.tsx`）：
+  - `SNAP_THRESHOLD = 8`（画布逻辑像素），接近阈值时自动吸附。
+  - 吸附点：画布左边缘 (`x=0`)、右边缘 (`x=width`)、垂直中心 (`x=width/2`)、上边缘 (`y=0`)、下边缘 (`y=height`)、水平中心 (`y=height/2`)。
+  - 吸附时将元素位置修正到对齐坐标，同时渲染高亮引导线（`1px solid rgba(25, 143, 255, 0.7)`）提示当前吸附位置。
+  - 吸附修正仅影响 `drag` 交互；`resize` 和 `rotate` 不触发吸附。
+- **状态管理**：
+  - `isDragging` + `snapGuides` 本地 state，驱动 UI 条件渲染（非全局状态，无需写入 Zustand）。
+  - `computeSnap` 使用 `useCallback` 缓存，依赖稳定的 `canvasSize`。
+  - 拖拽结束时调用 `updateElement(id, {}, false)` 将最终吸附位置写入一条撤销重做快照。
+- **导出隔离**：`exportToBlob` 使用纯 Canvas API 绘制元素，不涉及 DOM，故引导线天然不会出现在导出结果中。
+
+**测试结果：**
+- **全量 E2E 测试**：15 个测试用例全部通过（13 个既有 + 2 个 Step 13 新增）。
+- **E2E 新增测试**：
+  1. `step13: safe area center guides are always visible on canvas`：验证引导线容器在空白画布中可见。
+  2. `step13: drag shows snap guides when element approaches alignment positions`：验证拖拽交互的完整路径。
+
+**遗留风险与下一步准备：**
+- 安全区引导线功能完整，与导出流程天然隔离，无遗留风险。
+- 下一步（Step 14）将进入 **"高级文本样式"**。按用户指令，在 Step 13 验证通过前不开始 Step 14。
+
+---
+
+### Step 14：高级文本样式（已完成）
+
+**完成内容：**
+- **样式预设注册表 (`src/modules/canvas/presets.ts`)**：
+  - 新增 `TEXT_STYLE_PRESETS` 数组，包含 6 套预设：爆款价、必吃榜、避雷提醒、限时特价、新商品、热销榜。
+  - 每套预设定义：`strokeColor`、`strokeWidth`、`shadowColor`、`shadowBlur`、`shadowOffsetX`、`shadowOffsetY`、`letterSpacing`。
+  - 提供 `buildPresetUpdate` 工具函数，将预设字段映射为元素更新对象。
+- **右侧属性面板增强 (`src/modules/ui/components/RightPanel.tsx`)**：
+  - 在文本属性编辑面板顶部新增"样式预设"区域，使用 `BgColorsOutlined` 图标，包含 6 个预设快捷按钮。
+  - 新增**描边控制区块**：描边颜色拾取器、描边宽度 InputNumber、"启用/移除描边"切换按钮。
+  - 新增**阴影控制区块**：阴影颜色拾取器、模糊度 InputNumber、X/Y 偏移 InputNumber、"启用/移除阴影"切换按钮。
+  - 新增**字间距控制**：InputNumber 输入框（0~50px）。
+  - 各高级样式区块均使用虚线边框和背景区分，启用状态显示"未启用"Tag。
+- **画布文本渲染增强 (`src/modules/canvas/components/CanvasArea.tsx`)**：
+  - 使用 CSS `textShadow` 实现阴影效果（`${offsetX}px ${offsetY}px ${blur}px ${color}`）。
+  - 使用 CSS `-webkit-text-stroke` 实现描边效果（`${strokeWidth}px ${strokeColor}`）。
+  - 应用 CSS `letter-spacing: ${value}px` 实现字间距。
+- **导出模块增强 (`src/modules/export/index.ts`)**：
+  - `drawTextElement` 支持 `strokeText` 描边绘制（先于填充绘制，颜色/线宽由 `strokeStyle`/`lineWidth` 控制）。
+  - 支持 Canvas 2D `shadowColor`、`shadowBlur`、`shadowOffsetX`、`shadowOffsetY` 属性。
+  - 支持 `ctx.letterSpacing`（Chrome 99+/Firefox 91+），回退为标准间距。
+  - 描边和阴影均正确渲染在导出 PNG/JPEG 结果中。
+
+**测试结果：**
+- **全量单元测试**：10 个测试文件、60 个测试用例全部通过。
+- **Step 14 单测 (`src/modules/canvas/step14.test.ts`)**：7 个用例全部通过，验证预设数量、字段完整性、常用预设（爆款价/必吃榜/避雷提醒）字段正确性、`buildPresetUpdate` 函数映射正确。
+- **Lint**：ESLint + Prettier 全项目绿色通过。
+
+**遗留风险与下一步准备：**
+- 高级文本样式完整实现了描边、阴影、字间距三大能力，与 Step 5 的 MVP 文本能力边界清晰且兼容。
+- 下一步（Step 15）将进入 **"基础图形元素"**。按用户指令，在 Step 14 验证通过前不开始 Step 15。
+
+---
+
+### Step 15：基础图形元素（已完成）
+
+**完成内容：**
+- **类型系统扩展 (`src/modules/state/types.ts`)**：
+  - 新增 `ShapeSubtype = 'rect' | 'roundedRect' | 'circle'` 类型别名。
+  - 新增 `ShapeElement` 接口，继承 `BaseElement`，包含 `shapeType`、`fill`、`stroke`、`strokeWidth`、`cornerRadius` 字段。
+  - `ElementType` 扩展为 `'text' | 'sticker' | 'shape'` 三元联合。
+  - `EditorElement` 扩展为 `TextElement | StickerElement | ShapeElement` 三元联合。
+- **Schema 扩展 (`src/modules/state/schema.ts`)**：
+  - `validateAndFilterElement` 支持 `shape` 类型，校验 `shapeType` 为 `rect/roundedRect/circle`，默认 `rect`。
+  - 允许 shape 专属字段：`shapeType`、`fill`、`stroke`、`strokeWidth`、`cornerRadius`。
+  - Step 14 高级文本字段（描边/阴影）已加入 text 的允许字段白名单。
+- **Store 扩展 (`src/modules/state/store.ts`)**：
+  - `CreateElementInput` 扩展支持 `shape` 类型的联合分支。
+  - `addElement` 对 `shape` 类型设置默认值：`shapeType: 'rect'`、`fill: '#e8e8e8'`、`stroke: '#d9d9d9'`、`strokeWidth: 1`、`cornerRadius: 0`。
+  - `addElement` 文本分支补全 Step 14 高级字段传递（`strokeColor`、`strokeWidth`、`shadow*`、`letterSpacing`）。
+- **左侧图形面板 (`src/modules/ui/components/LeftPanel.tsx`)**：
+  - 新增"图形"Tab，含"矩形"、"圆角矩形"、"圆形"三个按钮，点击调用 `handleAddShape`。
+  - 圆角矩形默认 `cornerRadius: 12`，图形统一在画布居中位置 (x:340, y:760) 创建。
+- **画布渲染增强 (`src/modules/canvas/components/CanvasArea.tsx`)**：
+  - `renderInnerContent` 新增 `shape` 分支，使用 CSS `borderRadius`（圆形 50%/圆角矩形 `${cornerRadius}px`）、`backgroundColor`、`border` 实现外观。
+  - 图形元素共享全部拖拽/缩放/旋转交互逻辑，与文本/贴纸一致。
+- **右侧属性面板扩展 (`src/modules/ui/components/RightPanel.tsx`)**：
+  - 新增 `shape` 元素类型分支渲染，属性面板包含：图形类型切换（Select）、填充颜色（ColorPicker）、边框颜色（ColorPicker）、边框宽度（InputNumber）、圆角半径（InputNumber，仅圆角矩形时显示）。
+- **导出模块扩展 (`src/modules/export/index.ts`)**：
+  - `exportToBlob` 循环中新增 `shape` 分支，调用 `drawShapeElement`。
+  - `drawShapeElement` 使用 Canvas 2D `beginPath/rect/ellipse/arcTo` 绘制三种图形，`fill` 和 `stroke` 分别处理，圆角矩形使用 `arcTo` 近似绘制。
+
+**测试结果：**
+- **全量单元测试**：11 个测试文件、71 个测试用例全部通过（+1 新文件 step15.test.ts，+8 新用例；step5.test.ts 中旧用例更新为验证 Step 14 高级字段保留行为）。
+- **Lint**：ESLint + Prettier 全项目绿色通过。
+
+**遗留风险与下一步准备：**
+- 图形元素已完整并入统一元素系统，支持拖拽/缩放/旋转/层级操作。
+- 下一步（Step 16）将进入 **"主题配色与一键替换"**。按用户指令，在 Step 15 验证通过前不开始 Step 16。
+
+---
+
+### Step 16：主题配色与一键替换（已完成）
+
+**完成内容：**
+- **主题注册表 (`src/modules/themes/registry.ts`)**：
+  - 新增 `ThemePreset` 接口，含 `id`、`name`、`description`、`colors: {primary, accent, text, background}`、`swatches[]`。
+  - 实现 5 套内置主题：带货高对比（#ff4d4f）、探店清新（#52c41a）、夜景霓虹（#722ed1）、轻奢金棕（#d4a843）、清凉海蓝（#1890ff）。
+  - `getRelativeLuminance(hex)`：WCAG 相对亮度计算（IEC 61966-2-1 标准公式）。
+  - `getContrastRatio(foreground, background)`：对比度计算公式 `(lighter+0.05)/(darker+0.05)`，返回值 1~21。
+  - `getContrastLevel(ratio)`：WCAG 等级判定（AAA≥7 / AA≥4.5 / AA+≥3 / _fail<3），返回标签和颜色。
+  - `buildColorReplaceMap(oldTheme, newTheme)`：计算旧主题到新主题的 hex→hex 颜色映射。
+  - `buildThemeFromPreset(preset)`：将主题预设展开为扁平颜色 token 记录。
+- **Store 主题应用逻辑 (`src/modules/state/store.ts`)**：
+  - `applyTheme(themeId)`：根据预设 ID 查找主题 → 计算颜色替换映射 → 扫描所有元素的 fill/stroke 字段 → 替换匹配颜色 → 更新 canvas.backgroundColor → 写入撤销重做历史。
+  - 若映射为空（颜色无变化）则直接 return，不产生历史记录。
+- **左侧配色面板 (`src/modules/ui/components/LeftPanel.tsx`)**：
+  - "配色"Tab 从占位改为可交互主题列表，显示色值 swatch 圆点、主题名称和描述。
+  - 点击主题触发 `applyTheme(themeId)` 并通过 `message.success` 提示用户。
+- **右侧对比度提示 (`src/modules/ui/components/RightPanel.tsx`)**：
+  - 文本颜色拾取器右侧新增 WCAG 对比度徽章，显示比率（如"12.3:1"）和等级（AAA/AA/AA+/_fail），颜色对应等级（绿/蓝/橙/红）。
+
+**测试结果：**
+- **Step 16 单测 (`src/modules/state/step16.test.ts`)**：21 个用例全部通过。
+  - 主题预设数量、必需字段、3 个命名主题颜色验证。
+  - 对比度计算边界（黑白最大/相似色最小）。
+  - WCAG 等级判定边界（AAA/AA/AA+/fail）。
+  - `buildColorReplaceMap` 正常映射和空映射场景。
+  - `applyTheme` 替换逻辑（文本 fill 替换、形状 fill+stroke 替换、无匹配不替换、写入历史、未知 ID 防错、canvas 背景同步更新）。
+- **全量单元测试**：全部通过。
+- **Lint**：ESLint + Prettier 全项目绿色通过。
+
+**遗留风险与下一步准备：**
+- 主题替换机制完整，与层级调整、撤销重做均无缝衔接。
+- 下一步（Step 17）将进入 **"本地存储"**。按用户指令，在 Step 16 验证通过前不开始 Step 17。
+
+---
+
+### Step 17：本地存储（草稿与"我的模板"）（已完成）
+
+**完成内容：**
+- **存储模块扩展 (`src/modules/storage/template.ts`)**：
+  - 新增 `CustomTemplateRecord` 接口，包含 `id`、`name`、`savedAt`、`template: ValidTemplate`。
+  - 使用独立 IndexedDB object store `'custom-templates'`（与草稿的 `'drafts'` store 完全隔离，避免互相覆盖）。
+  - 实现 `saveCustomTemplate(name, template)`、`loadCustomTemplates()`、`deleteCustomTemplate(id)` 三个函数，均返回 boolean 表示成功/失败。
+- **轻量偏好存储 (`src/modules/storage/preferences.ts`)**：
+  - 使用 `localStorage` 保存最后使用的画布尺寸（`video-cover:prefs:lastSize`）。
+  - 提供 `saveLastUsedSize(width, height)` 和 `loadLastUsedSize()`，后者对非法 JSON 和缺失字段返回 null 而不抛异常。
+- **Store 自动保存机制 (`src/modules/state/store.ts`)**：
+  - 新增 `autoSave()` 方法：持久化到 IndexedDB 但**不修改** `isDirty` 状态，仅用于崩溃恢复。
+  - 新增 `restoreFromDraft()` 异步方法：从 IndexedDB 加载最新草稿快照，恢复 `canvas/theme/elements/selection`，并将 `past/future` 历史栈清空（附录 B 规范：会话边界，历史不跨刷新恢复）。
+  - 新增 `saveAsCustomTemplate(name)`、`loadCustomTemplates()`、`deleteCustomTemplate(id)` 三个异步方法，委托给 storage 层。
+  - `applyTemplate` 扩展 `isCustomTemplate` 参数：builtin 模板覆盖后 `currentTemplateName` 置 null，自定义模板覆盖后 `currentTemplateName` 保留模板名。
+  - 所有写操作（`addElement`、`removeElement`、`setCanvasSize`、`setCanvasBackgroundColor`、`setTheme`、`bringToFront`、`bringForward`、`sendBackward`、`sendToBack`、`applyTheme`）均在状态更新后调用 `autoSave()`，确保崩溃可恢复。
+  - `saveDraftSnapshot()`（显式保存）保留其原有行为：持久化 + 重置 `isDirty: false`。
+- **App 启动恢复 (`src/App.tsx`)**：
+  - 在 `useEffect` 中调用 `restoreFromDraft()` 恢复最新草稿。
+  - `handleSetCanvasSize` 在用户显式切换尺寸时同步调用 `saveLastUsedSize`，将偏好写入 localStorage。
+- **"我的模板" UI (`src/modules/ui/components/LeftPanel.tsx`)**：
+  - 模板 Tab 新增"保存当前为模板"按钮（`handleSaveAsTemplate`），弹出 Input 确认框，保存后自动刷新模板列表。
+  - 我的模板列表：展示已保存模板的名称和保存日期，提供"加载"和"删除"按钮。
+  - "加载"自定义模板支持未保存改动确认弹窗（保存草稿后加载 / 直接加载 / 取消），与 builtin 模板行为一致。
+  - 模板 Tab 显示顺序：保存按钮 → 我的模板 → 官方模板。
+  - "删除"模板前弹出确认框，删除后自动刷新列表。
+
+**测试结果：**
+- **Step 17 单测 (`src/modules/state/step17.test.ts`)**：19 个用例全部通过。
+  - `preferences.ts`：`saveLastUsedSize`/`loadLastUsedSize` 的正常/异常/边界场景（空存储、非法 JSON、字段缺失、类型错误）。
+  - Store `autoSave`：`isDirty` 在 `addElement`、`removeElement`、`setCanvasBackgroundColor`、`applyTheme` 后保持为 true（不被 autoSave 重置）；`saveDraftSnapshot` 正确重置 `isDirty: false`。
+  - Store `restoreFromDraft`：无草稿时返回 false；有草稿时正确恢复 canvas/theme/elements/selection，且 past/future 被清空（历史不跨刷新恢复）。
+  - 自定义模板 CRUD：`saveAsCustomTemplate` 调用存储层并携带正确数据；`loadCustomTemplates` 返回列表；`deleteCustomTemplate` 调用存储层。
+  - `applyTemplate`：`isCustomTemplate=true` 时 `currentTemplateName` 保留，`isCustomTemplate=false` 时置 null。
+- **全量单元测试**：13 个测试文件、111 个测试用例全部通过（+1 新文件 step17.test.ts，+19 新用例）。
+- **Lint**：ESLint + Prettier 全项目绿色通过。
+
+**遗留风险与下一步准备：**
+- IndexedDB 在部分浏览器隐私模式下可能不可用；`saveDraft` 和 `loadDraft` 均做了 try-catch 保护，失败时打印警告但不阻断编辑流程。
+- 下一步（Step 18）将进入 **"异常恢复与稳定性增强"**。按用户指令，在 Step 17 验证通过前不开始 Step 18。

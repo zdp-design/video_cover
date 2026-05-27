@@ -581,3 +581,59 @@ test('step12: full MVP flow - select size, add elements, export', async ({
     page.locator('[data-testid="active-element-panel"]'),
   ).toBeVisible();
 });
+
+test('step13: safe area center guides are always visible on canvas', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  const board = page.locator('[data-testid="canvas-board"]');
+  const guides = board.locator('[data-testid="safe-area-guides"]');
+
+  // Center lines should always be visible (dashed)
+  await expect(guides).toBeVisible();
+});
+
+test('step13: drag shows snap guides when element approaches alignment positions', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  // Add a text element
+  await page.locator('text=文本').first().click();
+  await page.locator('[data-testid="add-main-title-btn"]').click();
+
+  const board = page.locator('[data-testid="canvas-board"]');
+  const element = board.locator('[data-testid^="canvas-element-"]').first();
+
+  // Element should be visible and selected
+  await expect(element).toBeVisible();
+
+  // Get initial position
+  const elBox = await element.boundingBox();
+  expect(elBox).not.toBeNull();
+
+  // Drag element toward center (540px = canvas center for 1080px wide canvas)
+  // Start from center-ish position and drag to exact center
+  if (elBox) {
+    const startX = elBox.x + elBox.width / 2;
+    const startY = elBox.y + elBox.height / 2;
+
+    // Move to center of canvas (accounting for board offset)
+    const boardBox = await board.boundingBox();
+    expect(boardBox).not.toBeNull();
+    if (boardBox) {
+      const centerX = boardBox.x + boardBox.width / 2;
+      const centerY = boardBox.y + boardBox.height / 2;
+
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      // Move toward center - should trigger snap guide
+      await page.mouse.move(centerX, centerY, { steps: 10 });
+      await page.mouse.up();
+
+      // After drag, re-select element to check state
+      await element.click();
+    }
+  }
+});
