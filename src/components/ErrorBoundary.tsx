@@ -1,4 +1,4 @@
-import React, { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Result, Button, Typography } from 'antd';
 
 const { Paragraph, Text } = Typography;
@@ -121,7 +121,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 <br />
                 {suggestion}
               </Paragraph>
-              {process.env.NODE_ENV === 'development' && error && (
+              {import.meta.env.DEV && error && (
                 <>
                   <Paragraph>
                     <Text type="danger" style={{ fontSize: 12 }}>

@@ -607,16 +607,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         clearTimeout(autoSaveTimer);
         autoSaveTimer = null;
       }
-      set(() => ({
+      set({
         canvas: draft.canvas,
         theme: draft.theme,
         elements: draft.elements,
         selection: draft.selection,
         isDirty: false,
         currentTemplateName: null,
-        past: [],
-        future: [],
-      }));
+        past: [] as [],
+        future: [] as [],
+      });
       return true;
     } catch (err) {
       // IndexedDB 读取失败时，以空白画布启动，不阻断用户操作

@@ -150,22 +150,19 @@ interface ElementRendererProps {
 }
 
 const ElementRenderer = memo<ElementRendererProps>(
-  (
-    {
-      el,
-      isSelected,
-      scale,
-      containerRef,
-      onSelect,
-      onUpdate,
-      computeSnap,
-      computeTransformUpdate,
-      onDragStateChange,
-      onSnapGuidesChange,
-      onFinalizeDrag,
-    },
-    _prevProps,
-  ) => {
+  ({
+    el,
+    isSelected,
+    scale,
+    containerRef,
+    onSelect,
+    onUpdate,
+    computeSnap,
+    computeTransformUpdate,
+    onDragStateChange,
+    onSnapGuidesChange,
+    onFinalizeDrag,
+  }) => {
     const renderInnerContent = () => {
       if (el.type === 'text') {
         return <TextContent el={el as TextElement} />;
