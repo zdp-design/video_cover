@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useShallow } from 'zustand/shallow';
 import type {
   EditorElement,
   CanvasConfig,
@@ -88,6 +89,10 @@ const DEFAULT_CANVAS: CanvasConfig = {
 
 const MAX_HISTORY = 50; // MVP: max 50 undo steps to limit memory usage (FIFO queue)
 
+// Performance: debounce timer for autoSave to avoid excessive IndexedDB writes
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const AUTO_SAVE_DEBOUNCE_MS = 1000; // 1 second debounce for auto-save
+
 function createHistorySnapshot(state: EditorStore): HistoryState {
   return {
     canvas: { ...state.canvas },
@@ -95,6 +100,29 @@ function createHistorySnapshot(state: EditorStore): HistoryState {
     elements: state.elements.map((el) => ({ ...el })),
   };
 }
+
+// Optimized selector hooks using zustand/shallow for array comparisons
+// These prevent unnecessary re-renders when elements/selection hasn't changed
+export const useCanvasSelector = () =>
+  useEditorStore((state) => state.canvas);
+export const useElementsSelector = () =>
+  useEditorStore((state) => state.elements);
+export const useSelectionSelector = () =>
+  useEditorStore((state) => state.selection);
+
+export const useEditorStoreShallow = () =>
+  useEditorStore(
+    useShallow((state) => ({
+      canvas: state.canvas,
+      theme: state.theme,
+      elements: state.elements,
+      selection: state.selection,
+      isDirty: state.isDirty,
+      currentTemplateName: state.currentTemplateName,
+      past: state.past,
+      future: state.future,
+    })),
+  );
 
 export const useEditorStore = create<EditorStore>((set, get) => ({
   canvas: { ...DEFAULT_CANVAS },
@@ -520,6 +548,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   saveDraftSnapshot: () => {
+    // Cancel any pending debounced auto-save
+    if (autoSaveTimer !== null) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
     const state = get();
     saveDraft({
       canvas: state.canvas,
@@ -529,7 +562,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       savedAt: new Date().toISOString(),
     }).then((saved) => {
       if (!saved) {
-        console.warn('Failed to save draft. IndexedDB may be unavailable.');
+        console.warn(
+          '[草稿保存] IndexedDB 不可用或存储已满。编辑内容将不会自动保存。',
+        );
       }
     });
     set(() => ({ isDirty: false }));
@@ -537,35 +572,57 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   // Auto-save: persists to IndexedDB for crash recovery WITHOUT resetting isDirty.
   // isDirty tracks explicit saves; auto-save is invisible to the dirty flag.
+  // Uses debouncing to avoid excessive IndexedDB writes during rapid interactions.
   autoSave: () => {
-    const state = get();
-    saveDraft({
-      canvas: state.canvas,
-      theme: state.theme,
-      elements: state.elements,
-      selection: state.selection,
-      savedAt: new Date().toISOString(),
-    }).then((saved) => {
-      if (!saved) {
-        console.warn('Failed to auto-save draft. IndexedDB may be unavailable.');
-      }
-    });
+    // Cancel any existing debounced auto-save
+    if (autoSaveTimer !== null) {
+      clearTimeout(autoSaveTimer);
+    }
+    // Debounce the actual save operation
+    autoSaveTimer = setTimeout(() => {
+      autoSaveTimer = null;
+      const state = get();
+      saveDraft({
+        canvas: state.canvas,
+        theme: state.theme,
+        elements: state.elements,
+        selection: state.selection,
+        savedAt: new Date().toISOString(),
+      }).then((saved) => {
+        if (!saved) {
+          console.warn(
+            '[自动保存] IndexedDB 不可用或存储已满。上次编辑可能无法恢复。',
+          );
+        }
+      });
+    }, AUTO_SAVE_DEBOUNCE_MS);
   },
 
   restoreFromDraft: async () => {
-    const draft = await loadDraft();
-    if (!draft) return false;
-    set(() => ({
-      canvas: draft.canvas,
-      theme: draft.theme,
-      elements: draft.elements,
-      selection: draft.selection,
-      isDirty: false,
-      currentTemplateName: null,
-      past: [],
-      future: [],
-    }));
-    return true;
+    try {
+      const draft = await loadDraft();
+      if (!draft) return false;
+      // Cancel any pending debounced auto-save on restore
+      if (autoSaveTimer !== null) {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+      }
+      set(() => ({
+        canvas: draft.canvas,
+        theme: draft.theme,
+        elements: draft.elements,
+        selection: draft.selection,
+        isDirty: false,
+        currentTemplateName: null,
+        past: [],
+        future: [],
+      }));
+      return true;
+    } catch (err) {
+      // IndexedDB 读取失败时，以空白画布启动，不阻断用户操作
+      console.warn('[草稿恢复] 读取失败，将以空白画布启动:', err);
+      return false;
+    }
   },
 
   saveAsCustomTemplate: async (name: string) => {
@@ -596,6 +653,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   resetStore: () => {
+    // Cancel any pending debounced auto-save on reset
+    if (autoSaveTimer !== null) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
     set({
       canvas: { ...DEFAULT_CANVAS },
       theme: {},

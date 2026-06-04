@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useEditorStore } from './store';
-import {
-  saveLastUsedSize,
-  loadLastUsedSize,
-} from '../storage/preferences';
+import { saveLastUsedSize, loadLastUsedSize } from '../storage/preferences';
 
 // --- preferences localStorage unit tests ---
 
@@ -298,7 +295,9 @@ describe('Step 17: Store - Custom Template CRUD', () => {
     });
 
     const { saveCustomTemplate } = await import('../storage/template');
-    const result = await useEditorStore.getState().saveAsCustomTemplate('My Template');
+    const result = await useEditorStore
+      .getState()
+      .saveAsCustomTemplate('My Template');
     expect(result).toBe(true);
     expect(saveCustomTemplate).toHaveBeenCalledTimes(1);
     const [name, template] = vi.mocked(saveCustomTemplate).mock.calls[0];
@@ -311,8 +310,18 @@ describe('Step 17: Store - Custom Template CRUD', () => {
   it('loadCustomTemplates returns list from storage', async () => {
     const { loadCustomTemplates } = await import('../storage/template');
     vi.mocked(loadCustomTemplates).mockResolvedValueOnce([
-      { id: 't1', name: 'Template 1', savedAt: '2024-01-01', template: {} as never },
-      { id: 't2', name: 'Template 2', savedAt: '2024-01-02', template: {} as never },
+      {
+        id: 't1',
+        name: 'Template 1',
+        savedAt: '2024-01-01',
+        template: {} as never,
+      },
+      {
+        id: 't2',
+        name: 'Template 2',
+        savedAt: '2024-01-02',
+        template: {} as never,
+      },
     ]);
 
     const result = (await useEditorStore.getState().loadCustomTemplates()) as {

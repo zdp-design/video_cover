@@ -274,7 +274,9 @@ function wrapText(
  */
 function splitGraphemeClusters(text: string): string[] {
   if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    const segmenter = new Intl.Segmenter(undefined, {
+      granularity: 'grapheme',
+    });
     return Array.from(segmenter.segment(text)).map((s) => s.segment);
   }
   // Fallback: return each character as separate segment (works for CJK)
@@ -501,8 +503,14 @@ async function waitForFonts(): Promise<void> {
  * regardless of the editor's display scaling.
  */
 export async function exportToBlob(options: ExportOptions): Promise<Blob> {
-  const { canvasWidth, canvasHeight, scale, format, backgroundColor, elements } =
-    options;
+  const {
+    canvasWidth,
+    canvasHeight,
+    scale,
+    format,
+    backgroundColor,
+    elements,
+  } = options;
 
   // Wait for fonts to be loaded before rendering text
   await waitForFonts();
@@ -569,16 +577,13 @@ export async function exportToBlob(options: ExportOptions): Promise<Blob> {
         0.92,
       );
     } else {
-      canvas.toBlob(
-        (blob) => {
-          if (blob) {
-            resolve(blob);
-          } else {
-            reject(new Error('Failed to create PNG blob'));
-          }
-        },
-        'image/png',
-      );
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Failed to create PNG blob'));
+        }
+      }, 'image/png');
     }
   });
 }

@@ -187,19 +187,41 @@ export const LeftPanel: React.FC = () => {
   };
 
   const doLoad = async (templateId: string) => {
-    const records = (await loadCustomTemplates()) as {
-      id: string;
-      name: string;
-      savedAt: string;
-      template: unknown;
-    }[];
-    const record = records.find((r) => r.id === templateId);
-    if (!record || !record.template) {
-      message.error('模板不存在或数据损坏');
-      return;
+    try {
+      const records = (await loadCustomTemplates()) as {
+        id: string;
+        name: string;
+        savedAt: string;
+        template: unknown;
+      }[];
+      const record = records.find((r) => r.id === templateId);
+      if (!record || !record.template) {
+        message.error('模板不存在或数据已损坏');
+        return;
+      }
+      const validated = validateTemplateSchema(record.template);
+      if (!validated) {
+        message.error({
+          content:
+            '模板数据解析失败，可能需要重新保存该模板。建议：删除后重新创建。',
+          duration: 5,
+        });
+        console.error(
+          'Custom template validation failed for id:',
+          templateId,
+          record.template,
+        );
+        return;
+      }
+      applyTemplate(validated, true);
+      message.success(`已加载模板：${record.name}`);
+    } catch (err) {
+      message.error({
+        content: '加载模板时发生未知错误，请稍后重试。',
+        duration: 3,
+      });
+      console.error('Error loading custom template:', err);
     }
-    applyTemplate(record.template as Parameters<typeof applyTemplate>[0], true);
-    message.success(`已加载模板：${record.name}`);
   };
 
   const handleDeleteCustomTemplate = (templateId: string) => {
@@ -226,12 +248,17 @@ export const LeftPanel: React.FC = () => {
       (item) => item.meta.id === templateId,
     );
     if (!rawTemplate) {
-      message.error('模板不存在');
+      message.error('模板不存在或已被移除');
       return;
     }
     const validated = validateTemplateSchema(rawTemplate);
     if (!validated) {
-      message.error('模板数据校验失败');
+      message.error({
+        content:
+          '模板数据格式异常，无法加载。建议：尝试重新打开应用或清除缓存后重试。',
+        duration: 5,
+      });
+      console.error('Template validation failed:', rawTemplate);
       return;
     }
     applyTemplate(validated);

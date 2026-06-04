@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Modal, Radio, Space, Typography, Alert } from 'antd';
+import { Modal, Radio, Space, Typography, Alert, Button } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import { useEditorStore } from '../../state/store';
 import {
   exportToBlob,
@@ -21,6 +22,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ open, onClose }) => {
   const [scale, setScale] = useState<ExportScale>(1);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const canvas = useEditorStore((state) => state.canvas);
   const elements = useEditorStore((state) => state.elements);
@@ -52,12 +54,39 @@ export const ExportModal: React.FC<ExportModalProps> = ({ open, onClose }) => {
       });
 
       downloadBlob(blob, filename);
+      setRetryCount(0); // Reset retry count on success
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Export failed');
+      const errorMessage = err instanceof Error ? err.message : 'Export failed';
+      setError(errorMessage);
+      setRetryCount((prev) => prev + 1);
+
+      // 提供针对性的错误提示
+      let friendlyMessage = errorMessage;
+      if (errorMessage.includes('canvas')) {
+        friendlyMessage = '画布初始化失败，请尝试重新导出';
+      } else if (
+        errorMessage.includes('font') ||
+        errorMessage.includes('Font')
+      ) {
+        friendlyMessage = '字体加载超时，请稍后重试';
+      } else if (
+        errorMessage.includes('memory') ||
+        errorMessage.includes('Memory')
+      ) {
+        friendlyMessage = '内存不足，请尝试减少画布中的元素数量';
+      } else if (retryCount >= 2) {
+        friendlyMessage = `多次导出失败（${retryCount}次）。建议：刷新页面后重试，或降低清晰度后导出`;
+      }
+      setError(friendlyMessage);
     } finally {
       setExporting(false);
     }
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    handleExport();
   };
 
   return (
@@ -66,11 +95,31 @@ export const ExportModal: React.FC<ExportModalProps> = ({ open, onClose }) => {
       open={open}
       onCancel={onClose}
       onOk={handleExport}
-      okText="导出"
+      okText={exporting ? '导出中...' : '导出'}
       confirmLoading={exporting}
+      okButtonProps={{ 'data-testid': 'confirm-export-btn' }}
     >
       <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-        {error && <Alert type="error" message={error} />}
+        {error && (
+          <Alert
+            type="error"
+            message={error}
+            description={
+              retryCount > 0 && retryCount < 3 ? (
+                <Button
+                  type="link"
+                  icon={<ReloadOutlined />}
+                  onClick={handleRetry}
+                  loading={exporting}
+                  style={{ padding: 0, height: 'auto' }}
+                >
+                  点击重试
+                </Button>
+              ) : undefined
+            }
+            showIcon
+          />
+        )}
 
         <div>
           <Text strong>格式</Text>

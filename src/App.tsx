@@ -5,14 +5,13 @@ import { MemoizedLeftPanel } from './modules/ui/components/LeftPanel';
 import { MemoizedRightPanel } from './modules/ui/components/RightPanel';
 import { CanvasArea } from './modules/canvas/components/CanvasArea';
 import { useEditorStore } from './modules/state/store';
-import {
-  saveLastUsedSize,
-} from './modules/storage/preferences';
+import { saveLastUsedSize } from './modules/storage/preferences';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './App.css';
 
 const { Header, Sider, Content } = Layout;
 
-function App() {
+function AppContent() {
   const canvasSize = useEditorStore((state) => state.canvas);
   const restoreFromDraft = useEditorStore((state) => state.restoreFromDraft);
   const setCanvasSize = useEditorStore((state) => state.setCanvasSize);
@@ -23,11 +22,14 @@ function App() {
   };
 
   // App initialization: restore from latest draft snapshot if available.
-// Draft persistence covers canvas/theme/elements/selection, so last size
-// is already embedded. localStorage lastSize is a fallback for cases where
-// the draft doesn't exist but user previously used a non-default size.
+  // Draft persistence covers canvas/theme/elements/selection, so last size
+  // is already embedded. localStorage lastSize is a fallback for cases where
+  // the draft doesn't exist but user previously used a non-default size.
   useEffect(() => {
-    restoreFromDraft();
+    // restoreFromDraft 在内部已有 try-catch 处理，即使失败也不会阻断应用启动
+    restoreFromDraft().catch((err) => {
+      console.warn('草稿恢复失败，应用将以空白画布启动:', err);
+    });
   }, [restoreFromDraft]);
 
   return (
@@ -57,6 +59,14 @@ function App() {
         </Sider>
       </Layout>
     </Layout>
+  );
+}
+
+function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
   );
 }
 

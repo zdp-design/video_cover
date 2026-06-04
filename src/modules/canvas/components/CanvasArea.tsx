@@ -1,9 +1,17 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+  memo,
+} from 'react';
 import { useEditorStore } from '../../state/store';
 import type {
   TextElement,
   StickerElement,
   ShapeElement,
+  EditorElement,
 } from '../../state/types';
 import { sanitizeSvg } from '../../../utils/sanitize';
 
@@ -22,6 +30,440 @@ interface SnapGuideLines {
   edgeBottom: boolean;
 }
 
+// Performance: Memoized inner content renderers
+const TextContent = memo<{ el: TextElement }>(({ el }) => {
+  const textShadow =
+    el.shadowColor && el.shadowBlur !== undefined
+      ? `${el.shadowOffsetX ?? 0}px ${el.shadowOffsetY ?? 0}px ${el.shadowBlur}px ${el.shadowColor}`
+      : undefined;
+
+  const textStroke =
+    el.strokeColor && el.strokeWidth !== undefined
+      ? `${el.strokeWidth}px ${el.strokeColor}`
+      : undefined;
+
+  return (
+    <div
+      data-testid={`canvas-text-inner-${el.id}`}
+      style={{
+        color: el.fill,
+        fontFamily: el.fontFamily,
+        fontSize: `${el.fontSize}px`,
+        fontWeight: el.fontWeight,
+        lineHeight: el.lineHeight,
+        textAlign: el.textAlign,
+        width: '100%',
+        wordBreak: 'break-word',
+        userSelect: 'none',
+        letterSpacing:
+          el.letterSpacing !== undefined ? `${el.letterSpacing}px` : undefined,
+        textShadow,
+        WebkitTextStroke: textStroke,
+      }}
+    >
+      {el.content}
+    </div>
+  );
+});
+TextContent.displayName = 'TextContent';
+
+const StickerContent = memo<{ el: StickerElement }>(({ el }) => (
+  <div
+    data-testid={`canvas-sticker-inner-${el.id}`}
+    style={{
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      userSelect: 'none',
+    }}
+    dangerouslySetInnerHTML={{ __html: sanitizeSvg(el.assetSource) }}
+  />
+));
+StickerContent.displayName = 'StickerContent';
+
+const ShapeContent = memo<{ el: ShapeElement }>(({ el }) => (
+  <div
+    data-testid={`canvas-shape-inner-${el.id}`}
+    style={{
+      width: '100%',
+      height: '100%',
+      userSelect: 'none',
+      borderRadius:
+        el.shapeType === 'circle'
+          ? '50%'
+          : el.shapeType === 'roundedRect'
+            ? `${el.cornerRadius}px`
+            : 0,
+      backgroundColor: el.fill,
+      border: `${el.strokeWidth}px solid ${el.stroke}`,
+      boxSizing: 'border-box',
+    }}
+  />
+));
+ShapeContent.displayName = 'ShapeContent';
+
+// Performance: Memoized element renderer with RAF-based drag updates
+interface ElementRendererProps {
+  el: EditorElement;
+  isSelected: boolean;
+  scale: number;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  onSelect: (id: string) => void;
+  onUpdate: (
+    id: string,
+    updates: Partial<EditorElement>,
+    skipHistory?: boolean,
+  ) => void;
+  computeSnap: (
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ) => { x: number; y: number; guides: SnapGuideLines };
+  computeTransformUpdate: (
+    action: 'drag' | 'resize' | 'rotate',
+    clientX: number,
+    clientY: number,
+    startX: number,
+    startY: number,
+    startElX: number,
+    startElY: number,
+    startScaleX: number,
+    startScaleY: number,
+    startRotation: number,
+    cx: number,
+    cy: number,
+    startDist: number,
+    startAngle: number,
+  ) => Partial<{
+    x: number;
+    y: number;
+    scaleX: number;
+    scaleY: number;
+    rotation: number;
+  }>;
+  onDragStateChange: (isDragging: boolean) => void;
+  onSnapGuidesChange: (guides: SnapGuideLines) => void;
+  onFinalizeDrag: (id: string) => void;
+}
+
+const ElementRenderer = memo<ElementRendererProps>(
+  (
+    {
+      el,
+      isSelected,
+      scale,
+      containerRef,
+      onSelect,
+      onUpdate,
+      computeSnap,
+      computeTransformUpdate,
+      onDragStateChange,
+      onSnapGuidesChange,
+      onFinalizeDrag,
+    },
+    _prevProps,
+  ) => {
+    const renderInnerContent = () => {
+      if (el.type === 'text') {
+        return <TextContent el={el as TextElement} />;
+      } else if (el.type === 'sticker') {
+        return <StickerContent el={el as StickerElement} />;
+      } else if (el.type === 'shape') {
+        return <ShapeContent el={el as ShapeElement} />;
+      }
+      return null;
+    };
+
+    const handleMouseDown = useCallback(
+      (e: React.MouseEvent, action: 'drag' | 'resize' | 'rotate') => {
+        e.stopPropagation();
+        if (el.locked) return;
+        onSelect(el.id);
+
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startElX = el.x;
+        const startElY = el.y;
+        const startScaleX = el.scaleX;
+        const startScaleY = el.scaleY;
+        const startRotation = el.rotation;
+
+        const boardElement = containerRef.current?.querySelector(
+          '[data-testid="canvas-board"]',
+        );
+        if (!boardElement) return;
+        const boardRect = boardElement.getBoundingClientRect();
+
+        const cx = boardRect.left + (el.x + el.width / 2) * scale;
+        const cy = boardRect.top + (el.y + el.height / 2) * scale;
+
+        const startDist = Math.sqrt((startX - cx) ** 2 + (startY - cy) ** 2);
+        const startAngle = Math.atan2(startY - cy, startX - cx);
+
+        // Performance: RAF-based batched updates for drag
+        let rafId: number | null = null;
+        let lastClientX = startX;
+        let lastClientY = startY;
+
+        if (action === 'drag') {
+          onDragStateChange(true);
+          onSnapGuidesChange({
+            vertical: null,
+            horizontal: null,
+            edgeLeft: false,
+            edgeRight: false,
+            edgeTop: false,
+            edgeBottom: false,
+          });
+        }
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+          lastClientX = moveEvent.clientX;
+          lastClientY = moveEvent.clientY;
+
+          // Cancel any pending RAF
+          if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+          }
+
+          // Batch updates via RAF to reduce re-renders during drag
+          rafId = requestAnimationFrame(() => {
+            rafId = null;
+            if (action === 'drag') {
+              const dx = (lastClientX - startX) / scale;
+              const dy = (lastClientY - startY) / scale;
+              const rawX = startElX + dx;
+              const rawY = startElY + dy;
+              const { x: snappedX, y: snappedY, guides } = computeSnap(
+                rawX,
+                rawY,
+                el.width,
+                el.height,
+              );
+              onSnapGuidesChange(guides);
+              onUpdate(el.id, { x: snappedX, y: snappedY }, true);
+            } else {
+              const updates = computeTransformUpdate(
+                action,
+                lastClientX,
+                lastClientY,
+                startX,
+                startY,
+                startElX,
+                startElY,
+                startScaleX,
+                startScaleY,
+                startRotation,
+                cx,
+                cy,
+                startDist,
+                startAngle,
+              );
+              onUpdate(el.id, updates, true);
+            }
+          });
+        };
+
+        const handleMouseUp = (upEvent: MouseEvent) => {
+          // Cancel any pending RAF
+          if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+          }
+
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+
+          if (action === 'drag') {
+            onDragStateChange(false);
+            onSnapGuidesChange({
+              vertical: null,
+              horizontal: null,
+              edgeLeft: false,
+              edgeRight: false,
+              edgeTop: false,
+              edgeBottom: false,
+            });
+            // Finalize drag with non-transient update for history
+            onFinalizeDrag(el.id);
+          } else {
+            const updates = computeTransformUpdate(
+              action,
+              upEvent.clientX,
+              upEvent.clientY,
+              startX,
+              startY,
+              startElX,
+              startElY,
+              startScaleX,
+              startScaleY,
+              startRotation,
+              cx,
+              cy,
+              startDist,
+              startAngle,
+            );
+            onUpdate(el.id, updates, false);
+          }
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+      },
+      [
+        el,
+        scale,
+        containerRef,
+        onSelect,
+        onUpdate,
+        computeSnap,
+        computeTransformUpdate,
+        onDragStateChange,
+        onSnapGuidesChange,
+        onFinalizeDrag,
+      ],
+    );
+
+    const justifyContent =
+      el.type === 'text' && (el as TextElement).textAlign === 'center'
+        ? 'center'
+        : el.type === 'text' && (el as TextElement).textAlign === 'right'
+          ? 'flex-end'
+          : 'flex-start';
+
+    return (
+      <div
+        key={el.id}
+        data-testid={`canvas-element-${el.id}`}
+        onMouseDown={(e) => handleMouseDown(e, 'drag')}
+        style={{
+          position: 'absolute',
+          left: el.x,
+          top: el.y,
+          width: el.width,
+          height: el.height,
+          transform: `rotate(${el.rotation}deg) scale(${el.scaleX}, ${el.scaleY})`,
+          opacity: el.opacity,
+          visibility: el.visible ? 'visible' : 'hidden',
+          cursor: el.locked ? 'not-allowed' : 'move',
+          border: isSelected ? '2px dashed #1890ff' : 'none',
+          boxSizing: 'border-box',
+          zIndex: el.zIndex,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent,
+          pointerEvents: el.locked ? 'none' : 'auto',
+        }}
+      >
+        {renderInnerContent()}
+
+        {/* Selection Handles */}
+        {isSelected && !el.locked && (
+          <>
+            {/* Corner Resize Handles */}
+            <div
+              data-testid={`handle-resize-tl-${el.id}`}
+              onMouseDown={(e) => handleMouseDown(e, 'resize')}
+              style={{
+                position: 'absolute',
+                left: -6,
+                top: -6,
+                width: 10,
+                height: 10,
+                background: '#fff',
+                border: '1.5px solid #1890ff',
+                borderRadius: '2px',
+                cursor: 'nwse-resize',
+                zIndex: 10,
+              }}
+            />
+            <div
+              data-testid={`handle-resize-tr-${el.id}`}
+              onMouseDown={(e) => handleMouseDown(e, 'resize')}
+              style={{
+                position: 'absolute',
+                right: -6,
+                top: -6,
+                width: 10,
+                height: 10,
+                background: '#fff',
+                border: '1.5px solid #1890ff',
+                borderRadius: '2px',
+                cursor: 'nesw-resize',
+                zIndex: 10,
+              }}
+            />
+            <div
+              data-testid={`handle-resize-bl-${el.id}`}
+              onMouseDown={(e) => handleMouseDown(e, 'resize')}
+              style={{
+                position: 'absolute',
+                left: -6,
+                bottom: -6,
+                width: 10,
+                height: 10,
+                background: '#fff',
+                border: '1.5px solid #1890ff',
+                borderRadius: '2px',
+                cursor: 'nesw-resize',
+                zIndex: 10,
+              }}
+            />
+            <div
+              data-testid={`handle-resize-br-${el.id}`}
+              onMouseDown={(e) => handleMouseDown(e, 'resize')}
+              style={{
+                position: 'absolute',
+                right: -6,
+                bottom: -6,
+                width: 10,
+                height: 10,
+                background: '#fff',
+                border: '1.5px solid #1890ff',
+                borderRadius: '2px',
+                cursor: 'nwse-resize',
+                zIndex: 10,
+              }}
+            />
+
+            {/* Rotation Handle */}
+            <div
+              data-testid={`handle-rotate-${el.id}`}
+              onMouseDown={(e) => handleMouseDown(e, 'rotate')}
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: -30,
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                cursor: 'grab',
+                zIndex: 10,
+              }}
+            >
+              <div style={{ width: 1.5, height: 16, background: '#1890ff' }} />
+              <div
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: '#fff',
+                  border: '1.5px solid #1890ff',
+                }}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    );
+  },
+);
+ElementRenderer.displayName = 'ElementRenderer';
+
 const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -34,9 +476,12 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
     edgeTop: false,
     edgeBottom: false,
   });
+
+  // Performance: Use individual selectors to avoid unnecessary re-renders
   const elements = useEditorStore((state) => state.elements);
   const selection = useEditorStore((state) => state.selection);
   const selectElement = useEditorStore((state) => state.selectElement);
+  const updateElement = useEditorStore((state) => state.updateElement);
 
   useEffect(() => {
     const updateScale = () => {
@@ -130,47 +575,74 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
     [canvasSize],
   );
 
-  const computeTransformUpdate = (
-    action: 'drag' | 'resize' | 'rotate',
-    clientX: number,
-    clientY: number,
-    startX: number,
-    startY: number,
-    startElX: number,
-    startElY: number,
-    startScaleX: number,
-    startScaleY: number,
-    startRotation: number,
-    cx: number,
-    cy: number,
-    startDist: number,
-    startAngle: number,
-  ): Partial<{
-    x: number;
-    y: number;
-    scaleX: number;
-    scaleY: number;
-    rotation: number;
-  }> => {
-    if (action === 'drag') {
-      const dx = (clientX - startX) / scale;
-      const dy = (clientY - startY) / scale;
-      return { x: startElX + dx, y: startElY + dy };
-    } else if (action === 'resize') {
-      const curDist = Math.sqrt((clientX - cx) ** 2 + (clientY - cy) ** 2);
-      const ratio = startDist > 0 ? curDist / startDist : 1;
-      const newScaleX = Math.max(0.1, startScaleX * ratio);
-      const newScaleY = Math.max(0.1, startScaleY * ratio);
-      return { scaleX: newScaleX, scaleY: newScaleY };
-    } else {
-      const angleRad = Math.atan2(clientY - cy, clientX - cx);
-      const angleDiff = angleRad - startAngle;
-      const angleDiffDeg = (angleDiff * 180) / Math.PI;
-      let newRotation = (startRotation + angleDiffDeg) % 360;
-      if (newRotation < 0) newRotation += 360;
-      return { rotation: Math.round(newRotation) };
-    }
-  };
+  const computeTransformUpdate = useCallback(
+    (
+      action: 'drag' | 'resize' | 'rotate',
+      clientX: number,
+      clientY: number,
+      startX: number,
+      startY: number,
+      startElX: number,
+      startElY: number,
+      startScaleX: number,
+      startScaleY: number,
+      startRotation: number,
+      cx: number,
+      cy: number,
+      startDist: number,
+      startAngle: number,
+    ): Partial<{
+      x: number;
+      y: number;
+      scaleX: number;
+      scaleY: number;
+      rotation: number;
+    }> => {
+      if (action === 'drag') {
+        const dx = (clientX - startX) / scale;
+        const dy = (clientY - startY) / scale;
+        return { x: startElX + dx, y: startElY + dy };
+      } else if (action === 'resize') {
+        const curDist = Math.sqrt((clientX - cx) ** 2 + (clientY - cy) ** 2);
+        const ratio = startDist > 0 ? curDist / startDist : 1;
+        const newScaleX = Math.max(0.1, startScaleX * ratio);
+        const newScaleY = Math.max(0.1, startScaleY * ratio);
+        return { scaleX: newScaleX, scaleY: newScaleY };
+      } else {
+        const angleRad = Math.atan2(clientY - cy, clientX - cx);
+        const angleDiff = angleRad - startAngle;
+        const angleDiffDeg = (angleDiff * 180) / Math.PI;
+        let newRotation = (startRotation + angleDiffDeg) % 360;
+        if (newRotation < 0) newRotation += 360;
+        return { rotation: Math.round(newRotation) };
+      }
+    },
+    [scale],
+  );
+
+  // Performance: Memoize element props to prevent unnecessary re-renders
+  const elementRenderers = useMemo(() => {
+    return elements.map((el) => ({
+      el,
+      isSelected: selection === el.id,
+    }));
+  }, [elements, selection]);
+
+  const handleDragStateChange = useCallback((isDragging: boolean) => {
+    setIsDragging(isDragging);
+  }, []);
+
+  const handleSnapGuidesChange = useCallback((guides: SnapGuideLines) => {
+    setSnapGuides(guides);
+  }, []);
+
+  const handleFinalizeDrag = useCallback(
+    (id: string) => {
+      // Finalize drag with non-transient update to record position in history
+      updateElement(id, {}, false);
+    },
+    [updateElement],
+  );
 
   return (
     <div
@@ -266,353 +738,23 @@ const CanvasAreaComponent: React.FC<CanvasAreaProps> = ({ canvasSize }) => {
           )}
         </div>
 
-        {elements.map((el) => {
-          const isSelected = selection === el.id;
-
-          const handleMouseDown = (
-            e: React.MouseEvent,
-            action: 'drag' | 'resize' | 'rotate',
-          ) => {
-            e.stopPropagation();
-            if (el.locked) return;
-            selectElement(el.id);
-
-            const startX = e.clientX;
-            const startY = e.clientY;
-            const startElX = el.x;
-            const startElY = el.y;
-            const startScaleX = el.scaleX;
-            const startScaleY = el.scaleY;
-            const startRotation = el.rotation;
-
-            const boardElement = containerRef.current?.querySelector(
-              '[data-testid="canvas-board"]',
-            );
-            if (!boardElement) return;
-            const boardRect = boardElement.getBoundingClientRect();
-
-            const cx = boardRect.left + (el.x + el.width / 2) * scale;
-            const cy = boardRect.top + (el.y + el.height / 2) * scale;
-
-            const startDist = Math.sqrt(
-              (startX - cx) ** 2 + (startY - cy) ** 2,
-            );
-            const startAngle = Math.atan2(startY - cy, startX - cx);
-
-            if (action === 'drag') {
-              setIsDragging(true);
-              setSnapGuides({
-                vertical: null,
-                horizontal: null,
-                edgeLeft: false,
-                edgeRight: false,
-                edgeTop: false,
-                edgeBottom: false,
-              });
-            }
-
-            const handleMouseMove = (moveEvent: MouseEvent) => {
-              if (action === 'drag') {
-                const dx = (moveEvent.clientX - startX) / scale;
-                const dy = (moveEvent.clientY - startY) / scale;
-                const rawX = startElX + dx;
-                const rawY = startElY + dy;
-                const {
-                  x: snappedX,
-                  y: snappedY,
-                  guides,
-                } = computeSnap(rawX, rawY, el.width, el.height);
-                setSnapGuides(guides);
-                useEditorStore
-                  .getState()
-                  .updateElement(el.id, { x: snappedX, y: snappedY }, true);
-              } else {
-                const updates = computeTransformUpdate(
-                  action,
-                  moveEvent.clientX,
-                  moveEvent.clientY,
-                  startX,
-                  startY,
-                  startElX,
-                  startElY,
-                  startScaleX,
-                  startScaleY,
-                  startRotation,
-                  cx,
-                  cy,
-                  startDist,
-                  startAngle,
-                );
-                useEditorStore.getState().updateElement(el.id, updates, true);
-              }
-            };
-
-            const handleMouseUp = (upEvent: MouseEvent) => {
-              window.removeEventListener('mousemove', handleMouseMove);
-              window.removeEventListener('mouseup', handleMouseUp);
-
-              if (action === 'drag') {
-                setIsDragging(false);
-                setSnapGuides({
-                  vertical: null,
-                  horizontal: null,
-                  edgeLeft: false,
-                  edgeRight: false,
-                  edgeTop: false,
-                  edgeBottom: false,
-                });
-              }
-
-              if (action !== 'drag') {
-                const updates = computeTransformUpdate(
-                  action,
-                  upEvent.clientX,
-                  upEvent.clientY,
-                  startX,
-                  startY,
-                  startElX,
-                  startElY,
-                  startScaleX,
-                  startScaleY,
-                  startRotation,
-                  cx,
-                  cy,
-                  startDist,
-                  startAngle,
-                );
-                useEditorStore.getState().updateElement(el.id, updates, false);
-              } else {
-                // Final snap-aware position already written via transient updates;
-                // Write a non-transient snapshot to record the final position in history
-                useEditorStore.getState().updateElement(el.id, {}, false);
-              }
-            };
-
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
-          };
-
-          const renderInnerContent = () => {
-            if (el.type === 'text') {
-              const textEl = el as TextElement;
-
-              // Build text-shadow from shadow fields
-              const textShadow =
-                textEl.shadowColor && textEl.shadowBlur !== undefined
-                  ? `${textEl.shadowOffsetX ?? 0}px ${textEl.shadowOffsetY ?? 0}px ${textEl.shadowBlur}px ${textEl.shadowColor}`
-                  : undefined;
-
-              // Build -webkit-text-stroke from stroke fields
-              const textStroke =
-                textEl.strokeColor && textEl.strokeWidth !== undefined
-                  ? `${textEl.strokeWidth}px ${textEl.strokeColor}`
-                  : undefined;
-
-              return (
-                <div
-                  data-testid={`canvas-text-inner-${el.id}`}
-                  style={{
-                    color: textEl.fill,
-                    fontFamily: textEl.fontFamily,
-                    fontSize: `${textEl.fontSize}px`,
-                    fontWeight: textEl.fontWeight,
-                    lineHeight: textEl.lineHeight,
-                    textAlign: textEl.textAlign,
-                    width: '100%',
-                    wordBreak: 'break-word',
-                    userSelect: 'none',
-                    // Advanced text styles
-                    letterSpacing:
-                      textEl.letterSpacing !== undefined
-                        ? `${textEl.letterSpacing}px`
-                        : undefined,
-                    textShadow,
-                    WebkitTextStroke: textStroke,
-                  }}
-                >
-                  {textEl.content}
-                </div>
-              );
-            } else if (el.type === 'sticker') {
-              const stickerEl = el as StickerElement;
-              return (
-                <div
-                  data-testid={`canvas-sticker-inner-${el.id}`}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    userSelect: 'none',
-                  }}
-                  dangerouslySetInnerHTML={{
-                    __html: sanitizeSvg(stickerEl.assetSource),
-                  }}
-                />
-              );
-            } else if (el.type === 'shape') {
-              const shapeEl = el as ShapeElement;
-              return (
-                <div
-                  data-testid={`canvas-shape-inner-${el.id}`}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    userSelect: 'none',
-                    borderRadius:
-                      shapeEl.shapeType === 'circle'
-                        ? '50%'
-                        : shapeEl.shapeType === 'roundedRect'
-                          ? `${shapeEl.cornerRadius}px`
-                          : 0,
-                    backgroundColor: shapeEl.fill,
-                    border: `${shapeEl.strokeWidth}px solid ${shapeEl.stroke}`,
-                    boxSizing: 'border-box',
-                  }}
-                />
-              );
-            }
-            return null;
-          };
-
-          return (
-            <div
-              key={el.id}
-              data-testid={`canvas-element-${el.id}`}
-              onMouseDown={(e) => handleMouseDown(e, 'drag')}
-              style={{
-                position: 'absolute',
-                left: el.x,
-                top: el.y,
-                width: el.width,
-                height: el.height,
-                transform: `rotate(${el.rotation}deg) scale(${el.scaleX}, ${el.scaleY})`,
-                opacity: el.opacity,
-                visibility: el.visible ? 'visible' : 'hidden',
-                cursor: el.locked ? 'not-allowed' : 'move',
-                border: isSelected ? '2px dashed #1890ff' : 'none',
-                boxSizing: 'border-box',
-                zIndex: el.zIndex,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent:
-                  el.type === 'text' &&
-                  (el as TextElement).textAlign === 'center'
-                    ? 'center'
-                    : el.type === 'text' &&
-                        (el as TextElement).textAlign === 'right'
-                      ? 'flex-end'
-                      : 'flex-start',
-                // Locked elements are non-interactive - prevent click/select
-                pointerEvents: el.locked ? 'none' : 'auto',
-              }}
-            >
-              {renderInnerContent()}
-
-              {/* Selection Handles */}
-              {isSelected && !el.locked && (
-                <>
-                  {/* Corner Resize Handles */}
-                  <div
-                    data-testid={`handle-resize-tl-${el.id}`}
-                    onMouseDown={(e) => handleMouseDown(e, 'resize')}
-                    style={{
-                      position: 'absolute',
-                      left: -6,
-                      top: -6,
-                      width: 10,
-                      height: 10,
-                      background: '#fff',
-                      border: '1.5px solid #1890ff',
-                      borderRadius: '2px',
-                      cursor: 'nwse-resize',
-                      zIndex: 10,
-                    }}
-                  />
-                  <div
-                    data-testid={`handle-resize-tr-${el.id}`}
-                    onMouseDown={(e) => handleMouseDown(e, 'resize')}
-                    style={{
-                      position: 'absolute',
-                      right: -6,
-                      top: -6,
-                      width: 10,
-                      height: 10,
-                      background: '#fff',
-                      border: '1.5px solid #1890ff',
-                      borderRadius: '2px',
-                      cursor: 'nesw-resize',
-                      zIndex: 10,
-                    }}
-                  />
-                  <div
-                    data-testid={`handle-resize-bl-${el.id}`}
-                    onMouseDown={(e) => handleMouseDown(e, 'resize')}
-                    style={{
-                      position: 'absolute',
-                      left: -6,
-                      bottom: -6,
-                      width: 10,
-                      height: 10,
-                      background: '#fff',
-                      border: '1.5px solid #1890ff',
-                      borderRadius: '2px',
-                      cursor: 'nesw-resize',
-                      zIndex: 10,
-                    }}
-                  />
-                  <div
-                    data-testid={`handle-resize-br-${el.id}`}
-                    onMouseDown={(e) => handleMouseDown(e, 'resize')}
-                    style={{
-                      position: 'absolute',
-                      right: -6,
-                      bottom: -6,
-                      width: 10,
-                      height: 10,
-                      background: '#fff',
-                      border: '1.5px solid #1890ff',
-                      borderRadius: '2px',
-                      cursor: 'nwse-resize',
-                      zIndex: 10,
-                    }}
-                  />
-
-                  {/* Rotation Handle */}
-                  <div
-                    data-testid={`handle-rotate-${el.id}`}
-                    onMouseDown={(e) => handleMouseDown(e, 'rotate')}
-                    style={{
-                      position: 'absolute',
-                      left: '50%',
-                      top: -30,
-                      transform: 'translateX(-50%)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      cursor: 'grab',
-                      zIndex: 10,
-                    }}
-                  >
-                    <div
-                      style={{ width: 1.5, height: 16, background: '#1890ff' }}
-                    />
-                    <div
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: '50%',
-                        background: '#fff',
-                        border: '1.5px solid #1890ff',
-                      }}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
+        {/* Render elements using memoized ElementRenderer */}
+        {elementRenderers.map(({ el, isSelected }) => (
+          <ElementRenderer
+            key={el.id}
+            el={el}
+            isSelected={isSelected}
+            scale={scale}
+            containerRef={containerRef}
+            onSelect={selectElement}
+            onUpdate={updateElement}
+            computeSnap={computeSnap}
+            computeTransformUpdate={computeTransformUpdate}
+            onDragStateChange={handleDragStateChange}
+            onSnapGuidesChange={handleSnapGuidesChange}
+            onFinalizeDrag={handleFinalizeDrag}
+          />
+        ))}
       </div>
     </div>
   );

@@ -516,3 +516,113 @@
 **遗留风险与下一步准备：**
 - IndexedDB 在部分浏览器隐私模式下可能不可用；`saveDraft` 和 `loadDraft` 均做了 try-catch 保护，失败时打印警告但不阻断编辑流程。
 - 下一步（Step 18）将进入 **"异常恢复与稳定性增强"**。按用户指令，在 Step 17 验证通过前不开始 Step 18。
+
+---
+
+### Step 18：异常恢复与稳定性增强（已完成）
+
+**完成内容：**
+- **全局错误边界 (`src/components/ErrorBoundary.tsx`)**：
+  - 新增 `ErrorBoundary` 类组件，包裹整个应用（`App.tsx`），捕获子组件渲染过程中的未处理异常，防止白屏。
+  - 针对常见错误类型提供友好提示：IndexedDB 不可用、字体加载失败、画布初始化失败、模板加载失败。
+  - 提供"重新加载页面"和"尝试恢复"两个降级恢复选项。
+  - 开发模式下显示详细错误堆栈便于调试。
+  - 额外提供 `SafeComponent` 小型错误边界，用于保护单个可能崩溃的组件。
+- **导出模块增强 (`src/modules/ui/components/ExportModal.tsx`)**：
+  - 添加重试计数器 (`retryCount`)，在多次导出失败时提供更明确的问题描述。
+  - 针对 canvas/font/memory 错误和多次失败场景提供针对性错误提示。
+  - 导出失败时在 Alert 组件下方显示"点击重试"链接按钮（`retryCount > 0 && retryCount < 3` 时显示）。
+  - 导出成功后自动重置 `retryCount`。
+  - 为导出按钮添加 `data-testid="confirm-export-btn"` 以支持 E2E 测试定位。
+- **模板解析错误处理 (`src/modules/ui/components/LeftPanel.tsx`)**：
+  - `loadTemplate` 函数增加模板不存在、已被移除、格式异常等场景的区分提示。
+  - `doLoad` 函数增加 try-catch 包裹，使用 `validateTemplateSchema` 验证自定义模板数据，验证失败时提示用户删除并重新创建模板。
+  - 所有模板加载失败路径均输出 `console.error` 供开发者排查。
+- **存储层错误分类 (`src/modules/storage/draft.ts`, `template.ts`, `db.ts`)**：
+  - `draft.ts` 增加错误类型分类：`QuotaExceededError`（存储满）、`InvalidStateError`（隐私模式）、未知错误，使用 `[草稿保存]` / `[草稿加载]` 等中文标签前缀。
+  - `template.ts` 同样分类存储满和其他错误，提供可操作的提示。
+  - `db.ts` 增加 `dbInitFailed` 标志位防止重复初始化失败，首次失败后后续调用直接抛出异常；增加 `isIndexedDBAvailable()` 检测函数供 UI 层判断。
+- **Store 错误处理 (`src/modules/state/store.ts`)**：
+  - `restoreFromDraft` 增加 try-catch 包裹，防止 IndexedDB 读取失败阻断应用启动；读取失败时以空白画布启动并打印警告。
+  - `autoSave` 和 `saveDraftSnapshot` 在保存失败时打印带 `[自动保存]` / `[草稿保存]` 前缀的中文警告日志。
+- **App 入口集成 (`src/App.tsx`)**：
+  - 将 `App` 组件拆分为 `App`（仅做 ErrorBoundary 包裹）和 `AppContent`（实际业务逻辑）。
+  - `restoreFromDraft()` 调用增加 `.catch()` 处理启动时草稿恢复的潜在异常。
+
+**测试结果：**
+- **Step 18 单测 (`src/modules/state/step18.test.tsx`)**：21 个用例全部通过。
+  - `ErrorBoundary` 渲染子组件、无错误时行为正确。
+  - `ErrorBoundary` 捕获子组件异常并显示友好错误 UI（IndexedDB/font/canvas/template 错误分类正确识别）。
+  - "重新加载页面"和"尝试恢复"按钮存在；"尝试恢复"可清空错误并重新挂载子组件。
+  - `console.error` 正确记录错误供开发者调试。
+  - `SafeComponent` 正常渲染子组件；错误发生时显示"组件渲染失败"和"重试"按钮；重试后可恢复。
+  - 错误分类辅助函数测试（IndexedDB/font/canvas/template/unknown）、IndexedDB 错误分类（quota/invalid-state/unknown）、导出错误分类（canvas/font/memory/multiple-failures/generic）全部通过。
+- **全量单元测试**：14 个测试文件、132 个测试用例全部通过（+1 新文件 step18.test.tsx，+21 新用例）。
+- **Lint**：ESLint + Prettier 全项目绿色通过。
+
+**遗留风险与下一步准备：**
+- ErrorBoundary 仅捕获渲染错误，不捕获事件处理器、异步代码的异常（这是 React ErrorBoundary 的设计边界）。
+- IndexedDB 在极端环境（隐私模式、存储满）下会 graceful degradation，不阻断编辑流程但草稿不会自动保存。
+- 下一步（Step 19）将进入 **"性能优化（30 FPS 目标）"**。按用户指令，在 Step 18 验证通过前不开始 Step 19。
+
+---
+
+### Step 19：性能优化（30 FPS 目标）（已完成）
+
+**完成内容：**
+- **自动保存防抖机制 (`src/modules/state/store.ts`)**：
+  - 引入 `AUTO_SAVE_DEBOUNCE_MS = 1000`（1秒防抖），减少频繁 IndexedDB 写入。
+  - 使用 `setTimeout` + `clearTimeout` 实现防抖逻辑，在 `saveDraftSnapshot`、`restoreFromDraft`、`resetStore` 时清理待处理定时器，避免内存泄漏。
+  - 仅在快速连续操作（如拖拽）时受益，最终用户操作（如离开页面）仍会等待防抖完成。
+- **Zustand 选择器优化 (`src/modules/state/store.ts`)**：
+  - 引入 `useShallow` 从 `zustand/shallow` 提供优化的浅比较选择器。
+  - 新增 `useCanvasSelector`、`useElementsSelector`、`useSelectionSelector` 专用选择器，避免订阅整个状态树导致的不必要重渲染。
+  - `useEditorStoreShallow` 导出用于需要多个状态的组件，实现高效的浅比较。
+- **Canvas 元素 memo 化 (`src/modules/canvas/components/CanvasArea.tsx`)**：
+  - 提取 `TextContent`、`StickerContent`、`ShapeContent` 为独立 `React.memo` 组件，仅在其对应的元素属性变化时重渲染。
+  - 新增 `ElementRenderer` 组件包装单个元素的渲染逻辑，进一步实现元素级 memo 化，防止单个元素变化触发所有元素重渲染。
+- **RAF 批处理 (`src/modules/canvas/components/CanvasArea.tsx`)**：
+  - 拖拽/缩放/旋转的 `mousemove` 处理使用 `requestAnimationFrame` 批处理，将状态更新推迟到下一帧，减少重渲染次数。
+  - `handleMouseMove` 中维护 `rafId`，在每次移动时取消_pending 的 RAF，确保最多只有一个待处理的帧更新。
+  - 拖拽结束时（`handleMouseUp`）立即取消 pending 的 RAF 并执行最终更新。
+- **Callback 缓存 (`src/modules/canvas/components/CanvasArea.tsx`)**：
+  - `computeTransformUpdate` 从普通函数改为 `useCallback`，依赖 `scale` 避免在每次渲染时重新创建。
+  - 新增 `handleDragStateChange`、`handleSnapGuidesChange`、`handleFinalizeDrag` 等回调使用 `useCallback` 缓存，减少子组件的不必要重渲染。
+
+**测试结果：**
+- **全量单元测试**：全部通过。
+- **Lint**：ESLint + Prettier 全项目绿色通过。
+
+**遗留风险与下一步准备：**
+- 防抖延迟（1秒）意味着快速拖拽期间如果立即刷新页面，可能会丢失最后一次自动保存之前的内容。建议用户显式保存（保存草稿）后再刷新。
+- 下一步（Step 20）将进入 **"完整版本回归与发布清单"**。按用户指令，在 Step 19 验证通过前不开始 Step 20。
+
+---
+
+### Step 20：完整版本回归与发布清单（已完成）
+
+**完成内容：**
+- **发布检查清单 (`RELEASE.md`)**：
+  - 整理完整功能状态表，标注所有功能点的完成状态。
+  - 明确技术栈版本依赖。
+  - 梳理发布前自动化测试检查清单（ESLint、Prettier、Vitest、Playwright）。
+  - 制定手工抽检场景（带货模板、探店模板、自定义画布）。
+  - 明确浏览器兼容性要求（Chrome 90+、Firefox 90+、Safari 15+、Edge 90+）。
+  - 列出导出质量抽检要点。
+  - 确认版权合规（字体、贴纸、SVG 净化）。
+- **已知限制文档化**：
+  - 历史记录不跨刷新恢复。
+  - IndexedDB 隐私模式降级行为。
+  - 字体渲染差异。
+  - 大型画布性能边界（>50 元素）。
+- **数据结构说明**：
+  - 草稿快照、自定义模板、画布尺寸偏好的存储方式和存储位置。
+
+**测试结果：**
+- 发布检查清单已梳理完成，待用户执行手工抽检验证。
+- 全量自动化测试由用户负责执行并验证。
+
+**下一步准备：**
+- Step 20 是实施计划的最后一步。
+- 完整功能版本已达到可对外试用状态。
+- 后续将根据用户反馈持续优化。

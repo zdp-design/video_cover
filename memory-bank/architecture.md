@@ -16,7 +16,7 @@
 
 ### 1. `canvas/` (画布模块)
 - 负责主渲染区域的实现。
-- **`components/CanvasArea.tsx`**：接收 `canvasSize`，渲染实际的画布画板（Canvas Board）。内部实现了根据容器宽度和高度自动执行 `scale` 缩放的自适应算法，使得大分辨率画布（如 1080x1920）能在小屏幕上完美按比例预览，且通过 `flex-shrink: 0` 杜绝了弹性收缩形变。**已集成安全区可视化引导线和拖拽吸附对齐系统**：中心虚线（`rgba(25,143,255,0.25)`）始终可见；拖拽时元素接近对齐位置（阈值 8px）自动吸附并显示高亮引导线（`rgba(25,143,255,0.7)`）。吸附修正通过 `useCallback` + `canvasSize` 依赖缓存，拖拽结束时写入一条撤销重做快照。引导线使用 `pointerEvents: none`，天然不出现在 Canvas API 导出结果中。
+- **`components/CanvasArea.tsx`**：接收 `canvasSize`，渲染实际的画布画板（Canvas Board）。内部实现了根据容器宽度和高度自动执行 `scale` 缩放的自适应算法，使得大分辨率画布（如 1080x1920）能在小屏幕上完美按比例预览，且通过 `flex-shrink: 0` 杜绝了弹性收缩形变。**已集成安全区可视化引导线和拖拽吸附对齐系统**：中心虚线（`rgba(25,143,255,0.25)`）始终可见；拖拽时元素接近对齐位置（阈值 8px）自动吸附并显示高亮引导线（`rgba(25,143,255,0.7)`）。吸附修正通过 `useCallback` + `canvasSize` 依赖缓存，拖拽结束时写入一条撤销重做快照。引导线使用 `pointerEvents: none`，天然不出现在 Canvas API 导出结果中。**Step 19 性能优化**：提取 `TextContent`、`StickerContent`、`ShapeContent` 为独立 `React.memo` 组件；新增 `ElementRenderer` 组件实现元素级 memo 化；拖拽/缩放/旋转处理使用 `requestAnimationFrame` 批处理减少重渲染；`computeTransformUpdate` 和回调函数使用 `useCallback` 缓存防止不必要的重渲染。
 - **高级文本样式渲染**：文本元素在画布中渲染时，通过 CSS `textShadow`（描边）、`-webkit-text-stroke`（描边）、`letter-spacing`（字间距）实现 Step 14 高级样式。
 - 点击 CanvasArea 内部空白或 board 会调用 `selectElement(null)` 以清空当前的选中状态。
 - 元素拖拽使用 `mousemove/mouseup` 全局监听实现，支持 scale 补偿（逻辑坐标换算），确保不同窗口尺寸下指针不漂移。
@@ -26,7 +26,7 @@
 - 负责全局状态管理与运行时元素校验，对外暴露出纯净、强类型的 API 接口。
 - **`types.ts`**：核心领域模型接口定义。包括 `BaseElement` 通用基础字段，`TextElement`/`StickerElement`/`ShapeElement` 三个专属类型，以及 `CanvasConfig`、`ThemeColors`、`HistoryState` 等。Step 15 新增 `ShapeSubtype` 和 `ShapeElement`（含 `shapeType`、`fill`、`stroke`、`strokeWidth`、`cornerRadius`）。**采用 type-only import 规范**，确保了在被外部 JS 文件引用时不会生成冗余的空引用，成功规避了 Vite HMR 编译时报 `"Requested module does not provide export"` 的运行时语法错误。
 - **`schema.ts`**：运行时外部数据白名单过滤器。提供 `validateAndFilterElement` 工具函数，用于将来自外部的模板 JSON 或本地草稿转换为受信任的强类型实体，剔除杂质和未知字段，并在过滤时输出 `console.warn` 日志告警。Step 15 扩展支持 `shape` 类型；Step 14 扩展 text 专属字段白名单（描边/阴影/字间距）。
-- **`store.ts`**：Zustand store 的实体逻辑实现。包含尺寸、背景色设置，元素的增删改查，全局选中机制（支持不存在 ID 回退、删除时自动重置等），以及最高 50 步的 Undo/Redo 历史栈支持。**Step 16 新增 `applyTheme(themeId)`**：根据主题 ID 查找预设，通过 `buildColorReplaceMap` 计算旧主题到新主题的颜色映射，扫描所有元素的 fill/stroke 字段进行批量替换，同时更新 canvas 背景色，写入一条撤销重做快照。若映射为空则直接返回。**Step 17 新增**：`autoSave()` 方法（仅持久化到 IndexedDB，不修改 `isDirty`，用于崩溃恢复）；`restoreFromDraft()` 从 IndexedDB 恢复最新草稿快照，同时清空历史栈（会话边界）；`saveAsCustomTemplate(name)` / `loadCustomTemplates()` / `deleteCustomTemplate(id)` 委托给 storage 层；`applyTemplate` 增加 `isCustomTemplate` 参数（builtin 模板清空 `currentTemplateName`，自定义模板保留）；所有写操作（增删元素、尺寸/背景色/主题变更、层级调整）在状态更新后自动调用 `autoSave()`。
+- **`store.ts`**：Zustand store 的实体逻辑实现。包含尺寸、背景色设置，元素的增删改查，全局选中机制（支持不存在 ID 回退、删除时自动重置等），以及最高 50 步的 Undo/Redo 历史栈支持。**Step 16 新增 `applyTheme(themeId)`**：根据主题 ID 查找预设，通过 `buildColorReplaceMap` 计算旧主题到新主题的颜色映射，扫描所有元素的 fill/stroke 字段进行批量替换，同时更新 canvas 背景色，写入一条撤销重做快照。若映射为空则直接返回。**Step 17 新增**：`autoSave()` 方法（仅持久化到 IndexedDB，不修改 `isDirty`，用于崩溃恢复）；`restoreFromDraft()` 从 IndexedDB 恢复最新草稿快照，同时清空历史栈（会话边界）；`saveAsCustomTemplate(name)` / `loadCustomTemplates()` / `deleteCustomTemplate(id)` 委托给 storage 层；`applyTemplate` 增加 `isCustomTemplate` 参数（builtin 模板清空 `currentTemplateName`，自定义模板保留）；所有写操作（增删元素、尺寸/背景色/主题变更、层级调整）在状态更新后自动调用 `autoSave()`。**Step 19 性能优化**：引入 `AUTO_SAVE_DEBOUNCE_MS = 1000` 防抖机制，使用 `setTimeout` + `clearTimeout` 减少频繁 IndexedDB 写入；在 `saveDraftSnapshot`/`restoreFromDraft`/`resetStore` 时清理待处理定时器避免内存泄漏。新增 `useCanvasSelector`、`useElementsSelector`、`useSelectionSelector` 专用选择器，以及 `useEditorStoreShallow` 导出高效的浅比较选择器。
 
 ### 3. `ui/` (UI 面板模块)
 - 包含编辑器周边的控制面板组件。
@@ -80,6 +80,8 @@
 - `playwright.config.ts`：端到端测试框架 Playwright 的配置。
 - `eslint.config.js` / `.prettierrc`：代码规范校验和格式化规则。
 - `e2e/smoke.spec.ts`：E2E 端到端测试脚本。用于在真实浏览器中验证四区布局的稳定性、视口缩放表现以及画布尺寸切换下拉逻辑。
-- `src/App.tsx`：根组件，使用 Ant Design `<Layout>` 完成了经典的后台四区拼装。**Step 17 新增**：`useEffect` 中调用 `restoreFromDraft()` 在应用启动时从 IndexedDB 恢复最新草稿快照；`handleSetCanvasSize` 在用户显式切换画布尺寸时同步调用 `saveLastUsedSize` 将偏好写入 localStorage，供下次启动时感知（非独立恢复，仅作为草稿缺失时的尺寸回退）。
+- `RELEASE.md`（Step 20 新增）：版本发布说明文档。包含核心功能状态表、技术栈版本、发布前检查清单（自动化测试、手工抽检、浏览器兼容性、导出质量、版权合规）、已知限制说明、数据存储方式以及版本历史记录。
+- `src/components/ErrorBoundary.tsx`（Step 18 新增）：全局 React 错误边界组件。**`ErrorBoundary`** 类组件捕获子组件渲染过程中的未处理异常，防止白屏；针对 IndexedDB/font/canvas/template 错误提供友好提示；提供"重新加载页面"和"尝试恢复"两个降级恢复选项；开发模式下显示详细错误堆栈。**`SafeComponent`** 小型错误边界用于保护单个可能崩溃的组件，提供内联"重试"降级 UI。
+- `src/App.tsx`：根组件，使用 Ant Design `<Layout>` 完成了经典的后台四区拼装。**Step 17 新增**：`useEffect` 中调用 `restoreFromDraft()` 在应用启动时从 IndexedDB 恢复最新草稿快照；`handleSetCanvasSize` 在用户显式切换画布尺寸时同步调用 `saveLastUsedSize` 将偏好写入 localStorage，供下次启动时感知（非独立恢复，仅作为草稿缺失时的尺寸回退）。**Step 18 新增**：`App` 组件改为仅做 `ErrorBoundary` 包裹层，实际业务逻辑下沉到 `AppContent` 组件；`restoreFromDraft()` 调用增加 `.catch()` 处理启动时的潜在异常。
 - `src/App.test.tsx`：根组件及基础布局交互的单元与集成级测试。
 - `src/setupTests.ts`：Vitest 运行前的环境初始化（除引入 `jest-dom` 中外，还注入了 `window.matchMedia` 和 `ResizeObserver` 的 mock 实现，以保证 Ant Design UI 能够脱离真实浏览器顺利在 JSDOM 环境中测试）。
