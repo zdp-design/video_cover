@@ -608,14 +608,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         autoSaveTimer = null;
       }
       set({
-        canvas: draft.canvas,
-        theme: draft.theme,
-        elements: draft.elements,
+        canvas: draft.canvas as EditorStore['canvas'],
+        theme: draft.theme as EditorStore['theme'],
+        elements: draft.elements as EditorStore['elements'],
         selection: draft.selection,
         isDirty: false,
         currentTemplateName: null,
-        past: [] as [],
-        future: [] as [],
+        past: [] as EditorStore['past'],
+        future: [] as EditorStore['future'],
       });
       return true;
     } catch (err) {
